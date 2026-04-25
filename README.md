@@ -23,6 +23,20 @@
 
 ---
 
+## Demo
+
+A real `/claude-setup` run on the `acme-saas` Node monorepo (pnpm + turbo + Next.js + Hono + Drizzle). The skill detects the stack from lockfiles and `package.json` workspaces, scrapes hard rules from the README, and writes a path-scoped `.claude/` tree:
+
+<p align="center">
+  <img src="./assets/demo.svg" alt="claude-setup terminal demo" width="900"/>
+</p>
+
+Each `rules/*.md` is path-scoped (frontmatter `paths:`) so it only enters context when you open a file under that subtree. `skills/release/` and `skills/preview-deploy/` are wired to commands that actually exist in this repo (changeset + Vercel) — no TODO bodies, no docs-example boilerplate.
+
+See [`examples/acme-saas.md`](./examples/acme-saas.md) for the full file-by-file breakdown including which README phrase encoded as which rule.
+
+---
+
 ## Install
 
 ```sh
@@ -93,10 +107,6 @@ What it **never** generates:
 | Anything else | `templates/generic.md` |
 
 To add a stack: drop a new `templates/<name>.md`, then add a detection branch in `SKILL.md` Phase 2.
-
-## Worked example
-
-See [`examples/acme-saas.md`](./examples/acme-saas.md) for what the skill produces on a real-world Node monorepo (pnpm + turbo + Next.js + Hono + Drizzle): which inputs trigger which files, which README phrases get encoded as hard rules, and what the directory looks like in practice.
 
 ## Updating
 

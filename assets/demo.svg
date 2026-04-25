@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" role="img" aria-labelledby="d-title d-desc">
+  <title id="d-title">claude-setup demo</title>
+  <desc id="d-desc">Terminal session showing /claude-setup detecting a Node monorepo and generating a tailored .claude directory.</desc>
+
+  <defs>
+    <linearGradient id="termbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1F1F1E"/>
+      <stop offset="100%" stop-color="#161615"/>
+    </linearGradient>
+    <style><![CDATA[
+      .mono  { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 14px; }
+      .small { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; }
+      .dim   { fill: #6B6B6A; }
+      .cream { fill: #F5F0E8; }
+      .clay  { fill: #D87257; }
+      .gold  { fill: #F4BC60; }
+      .green { fill: #7BC894; }
+      .blue  { fill: #7BA7D9; }
+      .quote { fill: #F4BC60; }
+    ]]></style>
+  </defs>
+
+  <!-- Window -->
+  <rect width="960" height="640" rx="16" fill="url(#termbg)"/>
+  <path d="M0 16 Q0 0 16 0 L944 0 Q960 0 960 16 L960 36 L0 36 Z" fill="#2A2A29"/>
+  <circle cx="20" cy="18" r="6" fill="#FF5F57"/>
+  <circle cx="40" cy="18" r="6" fill="#FFBD2E"/>
+  <circle cx="60" cy="18" r="6" fill="#28C840"/>
+  <text x="480" y="23" text-anchor="middle" class="small" fill="#6B6B6A">~/acme-saas — claude</text>
+  <line x1="0" y1="36" x2="960" y2="36" stroke="#000" stroke-opacity="0.3"/>
+
+  <!-- Session lines. Each <g> fades in at its keyTime over a 14s loop. -->
+  <g class="mono" transform="translate(28 70)">
+
+    <g opacity="0">
+      <text x="0" y="0" class="green">$</text>
+      <text x="16" y="0" class="cream">claude</text>
+      <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.03;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+
+    <g opacity="0" transform="translate(0 30)">
+      <text x="0" y="0" class="clay">›</text>
+      <text x="16" y="0" class="cream">/claude-setup</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.07;0.10;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+
+    <g opacity="0" transform="translate(0 70)">
+      <text x="0" y="0" class="dim">Phase 1 · Detecting stack…</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.13;0.15;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 92)">
+      <text x="0" y="0" class="cream">  <tspan class="dim">→</tspan> pnpm-lock.yaml + turbo.json + apps/* + packages/*  <tspan class="clay">node-monorepo</tspan></text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.16;0.18;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 112)">
+      <text x="0" y="0" class="cream">  <tspan class="dim">→</tspan> apps/web      <tspan class="dim">·</tspan> Next.js 15 (App Router)</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.19;0.21;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 132)">
+      <text x="0" y="0" class="cream">  <tspan class="dim">→</tspan> apps/api      <tspan class="dim">·</tspan> Hono on Cloudflare Workers</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.22;0.24;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 152)">
+      <text x="0" y="0" class="cream">  <tspan class="dim">→</tspan> packages/db   <tspan class="dim">·</tspan> Drizzle + Postgres</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.25;0.27;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 172)">
+      <text x="0" y="0" class="cream">  <tspan class="dim">→</tspan> README rules <tspan class="dim">·</tspan> <tspan class="quote">"PII never in logs"</tspan>, <tspan class="quote">"App Router only"</tspan></text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.28;0.30;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+
+    <g opacity="0" transform="translate(0 208)">
+      <text x="0" y="0" class="dim">Phase 3 · Plan </text>
+      <text x="118" y="0" class="cream">(10 files, ~480 lines)</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.33;0.35;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+
+    <g opacity="0" transform="translate(0 232)">
+      <text x="0" y="0" class="blue">  acme-saas/</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.36;0.37;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 252)">
+      <text x="0" y="0" class="dim">  ├── </text>
+      <text x="50" y="0" class="cream">CLAUDE.md</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.38;0.39;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 272)">
+      <text x="0" y="0" class="dim">  ├── </text>
+      <text x="50" y="0" class="cream">.worktreeinclude</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.40;0.41;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 292)">
+      <text x="0" y="0" class="dim">  └── </text>
+      <text x="50" y="0" class="blue">.claude/</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.42;0.43;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 312)">
+      <text x="0" y="0" class="dim">      ├── </text>
+      <text x="78" y="0" class="cream">settings.json</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.44;0.45;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 332)">
+      <text x="0" y="0" class="dim">      ├── </text>
+      <text x="78" y="0" class="blue">rules/</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.46;0.47;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 352)">
+      <text x="0" y="0" class="dim">      │   ├── </text>
+      <text x="120" y="0" class="cream">web-next.md</text>
+      <text x="260" y="0" class="dim">apps/web/**</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.48;0.49;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 372)">
+      <text x="0" y="0" class="dim">      │   ├── </text>
+      <text x="120" y="0" class="cream">api-hono.md</text>
+      <text x="260" y="0" class="dim">apps/api/**</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.50;0.51;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 392)">
+      <text x="0" y="0" class="dim">      │   ├── </text>
+      <text x="120" y="0" class="cream">db-drizzle.md</text>
+      <text x="260" y="0" class="dim">packages/db/**</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.52;0.53;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 412)">
+      <text x="0" y="0" class="dim">      │   └── </text>
+      <text x="120" y="0" class="cream">ui-shadcn.md</text>
+      <text x="260" y="0" class="dim">packages/ui/**</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.54;0.55;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 432)">
+      <text x="0" y="0" class="dim">      ├── </text>
+      <text x="78" y="0" class="cream">agents/ts-reviewer.md</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.56;0.57;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 452)">
+      <text x="0" y="0" class="dim">      └── </text>
+      <text x="78" y="0" class="blue">skills/</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.58;0.59;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 472)">
+      <text x="0" y="0" class="dim">          ├── </text>
+      <text x="120" y="0" class="cream">release/</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.60;0.61;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+    <g opacity="0" transform="translate(0 492)">
+      <text x="0" y="0" class="dim">          └── </text>
+      <text x="120" y="0" class="cream">preview-deploy/</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.62;0.63;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+
+    <g opacity="0" transform="translate(0 528)">
+      <text x="0" y="0" class="dim">Proceed?</text>
+      <text x="80" y="0" class="cream">y</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.66;0.68;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+
+    <g opacity="0" transform="translate(0 552)">
+      <text x="0" y="0" class="green">✓</text>
+      <text x="16" y="0" class="cream">Generated 10 files (~480 lines).  </text>
+      <text x="290" y="0" class="dim">cd .claude &amp;&amp; tree</text>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.72;0.74;0.92;0.97;1" dur="14s" repeatCount="indefinite"/>
+    </g>
+  </g>
+</svg>
