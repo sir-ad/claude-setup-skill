@@ -1,13 +1,32 @@
-# claude-setup-skill
+<p align="center">
+  <img src="./assets/logo.svg" alt="claude-setup" width="900"/>
+</p>
 
-A Claude Code skill that scaffolds a context-aware `.claude/` directory for any project. Detects language, framework, monorepo layout, and existing conventions, then generates only the files that earn their keep on this stack.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-cc785c?style=flat-square&labelColor=1f1f1e" alt="MIT License"/></a>
+  <a href="https://github.com/sir-ad/claude-setup-skill/stargazers"><img src="https://img.shields.io/github/stars/sir-ad/claude-setup-skill?style=flat-square&color=cc785c&labelColor=1f1f1e" alt="GitHub stars"/></a>
+  <a href="https://github.com/sir-ad/claude-setup-skill/commits/main"><img src="https://img.shields.io/github/last-commit/sir-ad/claude-setup-skill?style=flat-square&color=cc785c&labelColor=1f1f1e" alt="Last commit"/></a>
+  <img src="https://img.shields.io/badge/stacks-7-cc785c?style=flat-square&labelColor=1f1f1e" alt="7 stacks supported"/>
+  <img src="https://img.shields.io/badge/install-symlink-cc785c?style=flat-square&labelColor=1f1f1e" alt="Symlink install"/>
+  <a href="https://code.claude.com"><img src="https://img.shields.io/badge/built%20for-Claude%20Code-cc785c?style=flat-square&labelColor=1f1f1e" alt="Built for Claude Code"/></a>
+</p>
 
-No empty folders. No placeholder TODOs. No copy-paste from docs examples.
+<p align="center">
+  <strong>One slash command. A bespoke <code>.claude/</code> per project.</strong><br/>
+  <em>Detects language, framework, monorepo layout, and existing conventions —<br/>
+  generates only the files that earn their keep on this stack.</em>
+</p>
+
+<p align="center">
+  No empty folders &nbsp;·&nbsp; No placeholder TODOs &nbsp;·&nbsp; No copy-paste from docs examples
+</p>
+
+---
 
 ## Install
 
 ```sh
-git clone <this-repo> ~/claude-setup-skill
+git clone https://github.com/sir-ad/claude-setup-skill ~/claude-setup-skill
 cd ~/claude-setup-skill
 ./install.sh
 ```
@@ -26,9 +45,11 @@ claude
 
 Optional flags:
 
-- `/claude-setup --minimal` — only `CLAUDE.md` + `.claude/settings.json`.
-- `/claude-setup --skip-skills` — skip skill generation.
-- `/claude-setup --dry-run` — print the plan, write nothing.
+| Flag | Effect |
+|---|---|
+| `--minimal` | only `CLAUDE.md` + `.claude/settings.json` |
+| `--skip-skills` | skip skill generation |
+| `--dry-run` | print the plan, write nothing |
 
 The skill walks five phases:
 
@@ -47,17 +68,17 @@ The skill walks five phases:
 | `.claude/settings.json` | always |
 | `.claude/rules/<n>.md` | per significant subdir with distinct conventions |
 | `.claude/agents/<lang>-reviewer.md` | always (read-only review subagent) |
-| `.claude/skills/release/` | if version file + CHANGELOG.md exist |
+| `.claude/skills/release/` | if version file + `CHANGELOG.md` exist |
 | `.claude/skills/<other>/` | per detected workflow (db-migrate, preview-deploy, etc.) |
 
 What it **never** generates:
 
-- `.claude/output-styles/` — no usecase-of-the-shelf
+- `.claude/output-styles/` — no use-case-off-the-shelf
 - `.claude/commands/` — Anthropic docs recommend skills for new workflows
 - `.claude/agent-memory/` — auto-populated when subagents with `memory:` frontmatter run
 - Empty folders
 - Skills with TODO bodies
-- Hard rules invented from thin air (only pulled from README/RFCs/ADRs)
+- Hard rules invented from thin air (only pulled from README / RFCs / ADRs)
 
 ## Stacks supported
 
@@ -65,13 +86,17 @@ What it **never** generates:
 |---|---|
 | Rust workspace | `templates/rust-workspace.md` |
 | Rust single crate | `templates/rust-single.md` |
-| Node monorepo (npm/pnpm/yarn workspaces, turbo, nx, lerna) | `templates/node-monorepo.md` |
+| Node monorepo (npm / pnpm / yarn workspaces, turbo, nx, lerna) | `templates/node-monorepo.md` |
 | Node single (Next.js, Vite, Astro, Express, ...) | `templates/node-single.md` |
 | Python (Poetry, uv, pip, hatch, rye) | `templates/python.md` |
 | Go | `templates/go.md` |
 | Anything else | `templates/generic.md` |
 
 To add a stack: drop a new `templates/<name>.md`, then add a detection branch in `SKILL.md` Phase 2.
+
+## Worked example
+
+See [`examples/acme-saas.md`](./examples/acme-saas.md) for what the skill produces on a real-world Node monorepo (pnpm + turbo + Next.js + Hono + Drizzle): which inputs trigger which files, which README phrases get encoded as hard rules, and what the directory looks like in practice.
 
 ## Updating
 
@@ -96,4 +121,4 @@ A skill is one markdown file Claude reads at runtime. The "context detection" is
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See [`LICENSE`](./LICENSE).

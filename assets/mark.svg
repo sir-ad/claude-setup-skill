@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="claude-setup">
+  <title>claude-setup</title>
+
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FBF7F1"/>
+      <stop offset="100%" stop-color="#F0E4D2"/>
+    </linearGradient>
+    <linearGradient id="folder" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D87257"/>
+      <stop offset="100%" stop-color="#B14F32"/>
+    </linearGradient>
+    <radialGradient id="spark" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFEFC4"/>
+      <stop offset="55%" stop-color="#F4BC60"/>
+      <stop offset="100%" stop-color="#E69333"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="240" height="240" rx="48" fill="url(#tile)"/>
+  <rect x="3" y="3" width="234" height="234" rx="45" fill="none" stroke="#B14F32" stroke-opacity="0.10" stroke-width="1.5"/>
+
+  <g transform="translate(40 64)">
+    <ellipse cx="80" cy="124" rx="78" ry="5" fill="#000" opacity="0.07"/>
+    <path d="M0 18 Q0 0 18 0 L58 0 L74 20 L142 20 Q160 20 160 38 L160 102 Q160 120 142 120 L18 120 Q0 120 0 102 Z" fill="url(#folder)"/>
+    <rect x="12" y="36" width="136" height="76" rx="4" fill="#FFF" fill-opacity="0.10"/>
+    <g stroke="#FFF" stroke-linecap="round" stroke-width="3" stroke-opacity="0.85">
+      <line x1="26" y1="56" x2="64" y2="56"/>
+      <line x1="36" y1="74" x2="118" y2="74"/>
+      <line x1="36" y1="92" x2="92" y2="92"/>
+    </g>
+  </g>
+
+  <g transform="translate(186 60)">
+    <path d="M0 -20 L5 -5 L20 0 L5 5 L0 20 L-5 5 L-20 0 L-5 -5 Z" fill="url(#spark)"/>
+    <path d="M0 -8 L2 -2 L8 0 L2 2 L0 8 L-2 2 L-8 0 L-2 -2 Z" fill="#FFF" fill-opacity="0.85"/>
+  </g>
+  <g transform="translate(208 96)">
+    <path d="M0 -7 L2 -2 L7 0 L2 2 L0 7 L-2 2 L-7 0 L-2 -2 Z" fill="url(#spark)" opacity="0.9"/>
+  </g>
+</svg>

@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
+  <title id="title">claude-setup</title>
+  <desc id="desc">A Claude Code skill that scaffolds context-aware .claude directories for any project.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FBF8F3"/>
+      <stop offset="100%" stop-color="#EFE3D0"/>
+    </linearGradient>
+    <linearGradient id="folder" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D87257"/>
+      <stop offset="100%" stop-color="#B14F32"/>
+    </linearGradient>
+    <radialGradient id="spark" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFEFC4"/>
+      <stop offset="55%" stop-color="#F4BC60"/>
+      <stop offset="100%" stop-color="#E69333"/>
+    </radialGradient>
+    <pattern id="dots" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#B14F32" fill-opacity="0.10"/>
+    </pattern>
+  </defs>
+
+  <!-- Tile -->
+  <rect width="1200" height="400" rx="20" fill="url(#bg)"/>
+  <rect width="1200" height="400" rx="20" fill="url(#dots)"/>
+  <rect x="2.5" y="2.5" width="1195" height="395" rx="18.5" fill="none" stroke="#B14F32" stroke-opacity="0.10" stroke-width="1.5"/>
+
+  <!-- Decorative directory tree, right side -->
+  <g transform="translate(900 60)" stroke="#B14F32" stroke-opacity="0.22" stroke-linecap="round" fill="none" stroke-width="1.5">
+    <path d="M0 0 v286" stroke-dasharray="3 5"/>
+    <path d="M0 30 h36" stroke-dasharray="3 5"/>
+    <path d="M0 65 h36" stroke-dasharray="3 5"/>
+    <path d="M0 100 h54"/>
+    <path d="M0 135 h36" stroke-dasharray="3 5"/>
+    <path d="M0 170 h36" stroke-dasharray="3 5"/>
+    <path d="M0 205 h54"/>
+    <path d="M0 240 h36" stroke-dasharray="3 5"/>
+    <path d="M54 100 v60" stroke-dasharray="3 5"/>
+    <path d="M54 130 h28" stroke-dasharray="3 5"/>
+    <path d="M54 160 h28" stroke-dasharray="3 5"/>
+    <path d="M54 205 v50" stroke-dasharray="3 5"/>
+    <path d="M54 235 h28" stroke-dasharray="3 5"/>
+    <g fill="#B14F32" fill-opacity="0.22" stroke="none">
+      <circle cx="36" cy="30" r="2.5"/>
+      <circle cx="36" cy="65" r="2.5"/>
+      <circle cx="36" cy="135" r="2.5"/>
+      <circle cx="36" cy="170" r="2.5"/>
+      <circle cx="82" cy="130" r="2.5"/>
+      <circle cx="82" cy="160" r="2.5"/>
+      <circle cx="36" cy="240" r="2.5"/>
+      <circle cx="82" cy="235" r="2.5"/>
+    </g>
+  </g>
+
+  <!-- Mark, left side -->
+  <g transform="translate(80 100)">
+    <ellipse cx="120" cy="218" rx="100" ry="6" fill="#000" opacity="0.08"/>
+
+    <g transform="translate(20 24)">
+      <!-- Folder body -->
+      <path d="M0 22 Q0 0 22 0 L70 0 L88 24 L170 24 Q192 24 192 46 L192 124 Q192 146 170 146 L22 146 Q0 146 0 124 Z" fill="url(#folder)"/>
+      <!-- Inner page hint -->
+      <rect x="14" y="42" width="164" height="92" rx="5" fill="#FFF" fill-opacity="0.12"/>
+      <!-- Directory listing -->
+      <g stroke="#FFF" stroke-linecap="round" stroke-width="3.5" stroke-opacity="0.88">
+        <line x1="32" y1="66" x2="78" y2="66"/>
+        <line x1="44" y1="86" x2="148" y2="86"/>
+        <line x1="44" y1="106" x2="116" y2="106"/>
+        <line x1="32" y1="126" x2="138" y2="126"/>
+      </g>
+    </g>
+
+    <!-- Primary sparkle -->
+    <g transform="translate(216 18)">
+      <path d="M0 -22 L5.5 -5.5 L22 0 L5.5 5.5 L0 22 L-5.5 5.5 L-22 0 L-5.5 -5.5 Z" fill="url(#spark)"/>
+      <path d="M0 -9 L2 -2 L9 0 L2 2 L0 9 L-2 2 L-9 0 L-2 -2 Z" fill="#FFF" fill-opacity="0.9"/>
+    </g>
+    <!-- Secondary sparkle -->
+    <g transform="translate(248 70)">
+      <path d="M0 -9 L2.5 -2.5 L9 0 L2.5 2.5 L0 9 L-2.5 2.5 L-9 0 L-2.5 -2.5 Z" fill="url(#spark)" opacity="0.9"/>
+    </g>
+  </g>
+
+  <!-- Wordmark + tagline -->
+  <g transform="translate(380 0)">
+    <text x="0" y="172" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="76" font-weight="700" fill="#1F1F1E" letter-spacing="-1.5">claude-setup</text>
+
+    <text x="3" y="210" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="20" fill="#5C4D40">
+      Scaffolds a context-aware <tspan font-family="ui-monospace, SFMono-Regular, monospace" font-weight="700" fill="#B14F32">.claude/</tspan> directory for any project.
+    </text>
+    <text x="3" y="238" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="20" fill="#5C4D40">
+      Detects stack, picks a template, generates only what earns its keep.
+    </text>
+
+    <!-- terminal preview -->
+    <g transform="translate(0 274)">
+      <rect x="0" y="0" width="430" height="62" rx="10" fill="#1F1F1E"/>
+      <circle cx="18" cy="16" r="4" fill="#FF5F57"/>
+      <circle cx="32" cy="16" r="4" fill="#FFBD2E"/>
+      <circle cx="46" cy="16" r="4" fill="#28C840"/>
+      <text x="20" y="46" font-family="ui-monospace, SFMono-Regular, monospace" font-size="20" fill="#F4BC60">›</text>
+      <text x="40" y="46" font-family="ui-monospace, SFMono-Regular, monospace" font-size="20" fill="#FBF8F3">/claude-setup</text>
+      <rect x="222" y="32" width="2" height="20" fill="#FBF8F3" opacity="0.75"/>
+    </g>
+  </g>
+</svg>
