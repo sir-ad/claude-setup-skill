@@ -3,11 +3,12 @@
 </p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/@claude-setup-skill/install"><img src="https://img.shields.io/npm/v/@claude-setup-skill/install?style=flat-square&color=cc785c&labelColor=1f1f1e&label=npm" alt="npm version"/></a>
+  <a href="https://www.npmjs.com/package/@claude-setup-skill/install"><img src="https://img.shields.io/npm/dm/@claude-setup-skill/install?style=flat-square&color=cc785c&labelColor=1f1f1e" alt="npm downloads"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-cc785c?style=flat-square&labelColor=1f1f1e" alt="MIT License"/></a>
   <a href="https://github.com/sir-ad/claude-setup-skill/stargazers"><img src="https://img.shields.io/github/stars/sir-ad/claude-setup-skill?style=flat-square&color=cc785c&labelColor=1f1f1e" alt="GitHub stars"/></a>
   <a href="https://github.com/sir-ad/claude-setup-skill/commits/main"><img src="https://img.shields.io/github/last-commit/sir-ad/claude-setup-skill?style=flat-square&color=cc785c&labelColor=1f1f1e" alt="Last commit"/></a>
   <img src="https://img.shields.io/badge/stacks-7-cc785c?style=flat-square&labelColor=1f1f1e" alt="7 stacks supported"/>
-  <img src="https://img.shields.io/badge/install-symlink-cc785c?style=flat-square&labelColor=1f1f1e" alt="Symlink install"/>
   <a href="https://code.claude.com"><img src="https://img.shields.io/badge/built%20for-Claude%20Code-cc785c?style=flat-square&labelColor=1f1f1e" alt="Built for Claude Code"/></a>
 </p>
 
@@ -39,13 +40,26 @@ See [`examples/acme-saas.md`](./examples/acme-saas.md) for the full file-by-file
 
 ## Install
 
+**Quickest** — zero install, runs once:
+
 ```sh
-git clone https://github.com/sir-ad/claude-setup-skill ~/claude-setup-skill
-cd ~/claude-setup-skill
-./install.sh
+npx -y @claude-setup-skill/install
 ```
 
-That symlinks `~/.claude/skills/claude-setup/` → `~/claude-setup-skill/`. Edit the source in this repo; changes are live.
+**Global** — keeps a `claude-setup-install` command around to rerun anytime:
+
+```sh
+npm i -g @claude-setup-skill/install && claude-setup-install
+```
+
+**From source** — for contributing or live-editing the skill:
+
+```sh
+git clone https://github.com/sir-ad/claude-setup-skill ~/claude-setup-skill
+cd ~/claude-setup-skill && ./install.sh
+```
+
+All three populate `~/.claude/skills/claude-setup/`. The npm methods copy files; from-source symlinks them so edits in your clone are immediately live.
 
 ## Use
 

@@ -1,0 +1,46 @@
+{
+  "name": "@claude-setup-skill/install",
+  "version": "0.1.0",
+  "description": "One-shot installer for the /claude-setup Claude Code skill — scaffolds context-aware .claude/ directories that earn their keep.",
+  "bin": {
+    "claude-setup-install": "./bin/install.js"
+  },
+  "files": [
+    "SKILL.md",
+    "templates",
+    "examples",
+    "assets",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "skill",
+    "scaffold",
+    "scaffolding",
+    "config",
+    "agent",
+    "ai",
+    "developer-tools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sir-ad/claude-setup-skill.git"
+  },
+  "homepage": "https://github.com/sir-ad/claude-setup-skill#readme",
+  "bugs": {
+    "url": "https://github.com/sir-ad/claude-setup-skill/issues"
+  },
+  "author": "adarsh.agrahari26@gmail.com",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
