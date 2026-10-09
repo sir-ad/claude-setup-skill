@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Validate repo layout
+        run: npm run validate
+
+      - name: Test
+        run: npm test
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+      - name: Installer smoke test
+        run: |
+          HOME="$RUNNER_TEMP/home" node bin/install.js
+          test -f "$RUNNER_TEMP/home/.claude/skills/claude-setup/SKILL.md"
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check install.sh
+        run: bash -n install.sh
+
+      - name: Shellcheck install.sh
+        run: shellcheck install.sh
