@@ -2,6 +2,8 @@
 
 Monorepo for the Acme web app.
 
+## Conventions
+
 - Packages must not import from apps. Never import `apps/*` inside `packages/*`.
 - Run `pnpm test` before pushing.
 

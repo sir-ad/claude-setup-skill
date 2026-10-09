@@ -22,7 +22,7 @@ const MAX_DEPTH = 3; // path segments below the root
 const MAX_ENTRIES = 5000; // files + dirs seen by the walk
 const MAX_READ_BYTES = 512 * 1024;
 const MAX_PER_CATEGORY = 40; // commands per category
-const MAX_HARD_RULES = 40;
+const MAX_HARD_RULES = 25;
 const MAX_DOCS = 50;
 
 // ---------------------------------------------------------------------------
@@ -848,6 +848,15 @@ const NODE_PM_PREFERENCE = ['pnpm', 'bun', 'yarn', 'npm'];
 
 const PYTHON_LOCKFILES = [['uv.lock', 'uv'], ['poetry.lock', 'poetry'], ['pdm.lock', 'pdm'], ['Pipfile.lock', 'pip']];
 
+// "pnpm@10.8.0+sha512.abc" -> "10.8.0", but only when the field names the detected manager.
+function packageManagerVersion(ctx, pm) {
+  const dir = nodeProjectDir(ctx);
+  if (!pm || dir === null) return null;
+  const pkg = readJson(ctx, joinRel(dir, 'package.json'));
+  const m = pkg && typeof pkg.packageManager === 'string' ? pkg.packageManager.match(/^([^@]+)@([^+]+)/) : null;
+  return m && m[1] === pm ? m[2] : null;
+}
+
 // Where Node commands should run from: the root, or the first nested package.json.
 function nodeProjectDir(ctx) {
   if (isFile(ctx, 'package.json')) return '';
@@ -956,14 +965,15 @@ function nodeFrameworks(ctx, rel) {
   if (!pkg) return [];
   const out = [];
   const seen = new Set();
-  // Earlier groups win when a package is listed in several.
-  for (const group of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
-    if (!isObject(pkg[group])) continue;
-    for (const [dep, version] of Object.entries(pkg[group])) {
+  // Earlier fields win when a package is listed in several.
+  const fields = [['dependencies', 'runtime'], ['optionalDependencies', 'optional'], ['peerDependencies', 'peer'], ['devDependencies', 'dev']];
+  for (const [field, group] of fields) {
+    if (!isObject(pkg[field])) continue;
+    for (const [dep, version] of Object.entries(pkg[field])) {
       const name = NODE_FRAMEWORKS[dep];
       if (!name || seen.has(name)) continue;
       seen.add(name);
-      out.push({ name, dep, version: typeof version === 'string' ? version : null, where: rel });
+      out.push({ name, dep, group, version: typeof version === 'string' ? version : null, where: rel });
     }
   }
   return out;
@@ -977,47 +987,59 @@ function parsePep508(spec) {
   return { name: m[1].toLowerCase().replace(/_/g, '-'), version: version || null };
 }
 
+// Dependency groups named like "test"/"tests" are test-only; other named groups are dev tooling.
+const namedGroup = (name) => (/test/i.test(name) ? 'test' : 'dev');
+
+// [{ spec, group }] from every place a pyproject can declare dependencies.
 function pythonDependencySpecs(toml) {
   const specs = [];
+  const add = (list, group) => specs.push(...strings(list).map((spec) => ({ spec, group })));
   const project = tomlTable(toml, 'project');
-  specs.push(...strings(project.dependencies));
+  add(project.dependencies, 'runtime');
   for (const [key, value] of Object.entries(project)) {
-    if (key.startsWith('optional-dependencies.')) specs.push(...strings(value));
+    if (key.startsWith('optional-dependencies.')) add(value, 'optional');
   }
-  for (const group of Object.values(tomlTable(toml, 'project.optional-dependencies'))) specs.push(...strings(group));
-  for (const group of Object.values(tomlTable(toml, 'dependency-groups'))) specs.push(...strings(group));
-  specs.push(...strings(tomlTable(toml, 'tool.uv')['dev-dependencies']));
-  for (const group of Object.values(tomlTable(toml, 'tool.pdm.dev-dependencies'))) specs.push(...strings(group));
+  for (const list of Object.values(tomlTable(toml, 'project.optional-dependencies'))) add(list, 'optional');
+  for (const [name, list] of Object.entries(tomlTable(toml, 'dependency-groups'))) add(list, namedGroup(name));
+  add(tomlTable(toml, 'tool.uv')['dev-dependencies'], 'dev');
+  for (const [name, list] of Object.entries(tomlTable(toml, 'tool.pdm.dev-dependencies'))) add(list, namedGroup(name));
 
   // Poetry keys are names; values are a version string or an inline table.
   for (const [table, entries] of Object.entries(toml)) {
-    const isPoetry = table === 'tool.poetry.dependencies' || table === 'tool.poetry.dev-dependencies' ||
-      /^tool\.poetry\.group\.[^.]+\.dependencies$/.test(table);
-    if (!isPoetry) continue;
+    let group = null;
+    if (table === 'tool.poetry.dependencies') group = 'runtime';
+    else if (table === 'tool.poetry.dev-dependencies') group = 'dev';
+    else {
+      const m = table.match(/^tool\.poetry\.group\.([^.]+)\.dependencies$/);
+      if (m) group = namedGroup(m[1]);
+    }
+    if (!group) continue;
     for (const [name, value] of Object.entries(entries)) {
       const version = typeof value === 'string' ? value : isObject(value) ? value.version : '';
-      specs.push(`${name} ${typeof version === 'string' ? version : ''}`);
+      specs.push({ spec: `${name} ${typeof version === 'string' ? version : ''}`, group });
     }
   }
   return specs;
 }
+
+const PYTHON_TOOL_GROUP = { ruff: 'dev', mypy: 'dev', pytest: 'test' };
 
 function pythonFrameworksFromToml(ctx, rel) {
   const toml = readToml(ctx, rel);
   if (!toml) return [];
   const out = [];
   const seen = new Set();
-  for (const spec of pythonDependencySpecs(toml)) {
+  for (const { spec, group } of pythonDependencySpecs(toml)) {
     const dep = parsePep508(spec);
-    if (dep && PYTHON_FRAMEWORKS.has(dep.name) && !seen.has(dep.name)) {
+    if (dep && PYTHON_FRAMEWORKS.has(dep.name)) {
       seen.add(dep.name);
-      out.push({ name: dep.name, dep: dep.name, version: dep.version, where: rel });
+      out.push({ name: dep.name, dep: dep.name, group, version: dep.version, where: rel });
     }
   }
   for (const [section, name] of Object.entries(PYTHON_TOOL_SECTIONS)) {
     if (toml[section] && !seen.has(name)) {
       seen.add(name);
-      out.push({ name, dep: name, version: null, where: rel });
+      out.push({ name, dep: name, group: PYTHON_TOOL_GROUP[name], version: null, where: rel });
     }
   }
   return out;
@@ -1027,11 +1049,13 @@ function pythonFrameworksFromRequirements(ctx, rel) {
   const text = readText(ctx, rel);
   if (!text) return [];
   const out = [];
+  const file = baseName(rel);
+  const group = /test/i.test(file) ? 'test' : /dev/i.test(file) ? 'dev' : 'runtime';
   for (const line of text.split(/\r?\n/)) {
     const clean = stripHashComment(line, true).trim();
     if (!clean || clean.startsWith('-')) continue;
     const dep = parsePep508(clean);
-    if (dep && PYTHON_FRAMEWORKS.has(dep.name)) out.push({ name: dep.name, dep: dep.name, version: dep.version, where: rel });
+    if (dep && PYTHON_FRAMEWORKS.has(dep.name)) out.push({ name: dep.name, dep: dep.name, group, version: dep.version, where: rel });
   }
   return out;
 }
@@ -1045,27 +1069,22 @@ function cargoVersion(value) {
 function rustFrameworks(ctx, rel) {
   const toml = readToml(ctx, rel);
   if (!toml) return [];
-  const deps = [];
-  for (const table of ['dependencies', 'dev-dependencies', 'build-dependencies', 'workspace.dependencies']) {
+  const out = [];
+  const add = (name, version, group) => {
+    if (RUST_FRAMEWORKS.has(name)) out.push({ name, dep: name, group, version, where: rel });
+  };
+  const tables = [['dependencies', 'runtime'], ['workspace.dependencies', 'runtime'], ['dev-dependencies', 'dev'], ['build-dependencies', 'dev']];
+  for (const [table, group] of tables) {
     for (const [key, value] of Object.entries(tomlTable(toml, table))) {
       const [name, sub] = key.split('.');
       // `tokio.workspace = true` has no version of its own.
-      deps.push({ name, version: sub === undefined || sub === 'version' ? cargoVersion(value) : null });
+      add(name, sub === undefined || sub === 'version' ? cargoVersion(value) : null, group);
     }
   }
   // `[dependencies.tokio]` style tables.
   for (const [table, entries] of Object.entries(toml)) {
-    const m = table.match(/^(?:workspace\.)?(?:dev-|build-)?dependencies\.(.+)$/);
-    if (m) deps.push({ name: m[1], version: cargoVersion(entries) });
-  }
-  const out = [];
-  const seen = new Set();
-  // Prefer entries that carry a version.
-  for (const dep of deps.sort((a, b) => Number(a.version === null) - Number(b.version === null))) {
-    if (RUST_FRAMEWORKS.has(dep.name) && !seen.has(dep.name)) {
-      seen.add(dep.name);
-      out.push({ name: dep.name, dep: dep.name, version: dep.version, where: rel });
-    }
+    const m = table.match(/^(workspace\.)?(dev-|build-)?dependencies\.(.+)$/);
+    if (m) add(m[3], cargoVersion(entries), m[2] ? 'dev' : 'runtime');
   }
   return out;
 }
@@ -1092,11 +1111,13 @@ function rubyFrameworks(ctx, rel) {
 function phpFrameworks(ctx, rel) {
   const composer = readJson(ctx, rel);
   if (!composer) return [];
-  const deps = { ...(composer['require-dev'] || {}), ...(composer.require || {}) };
   const out = [];
-  if (deps['laravel/framework']) out.push({ name: 'laravel', version: deps['laravel/framework'], where: rel });
-  const symfony = ['symfony/framework-bundle', 'symfony/symfony'].find((d) => deps[d]);
-  if (symfony) out.push({ name: 'symfony', version: deps[symfony], where: rel });
+  for (const [field, group] of [['require', 'runtime'], ['require-dev', 'dev']]) {
+    const deps = isObject(composer[field]) ? composer[field] : {};
+    if (deps['laravel/framework']) out.push({ name: 'laravel', group, version: deps['laravel/framework'], where: rel });
+    const symfony = ['symfony/framework-bundle', 'symfony/symfony'].find((d) => deps[d]);
+    if (symfony) out.push({ name: 'symfony', group, version: deps[symfony], where: rel });
+  }
   return out;
 }
 
@@ -1147,6 +1168,8 @@ function isLocalDependency(local, f) {
   return false;
 }
 
+const GROUP_ORDER = ['runtime', 'optional', 'peer', 'dev', 'test'];
+
 function collectFrameworks(ctx) {
   const found = [];
   const scan = (name, fn) => {
@@ -1175,10 +1198,13 @@ function collectFrameworks(ctx) {
     entries.sort((a, b) => Number(a.version === null) - Number(b.version === null) || byDepthThenPath(a.where, b.where));
     const first = entries[0];
     const { version, range } = splitRange(first.version);
+    // The strongest role wins: a package that is runtime anywhere is a runtime dependency.
+    const group = entries.map((e) => e.group || 'runtime').sort((a, b) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b))[0];
     out.push({
       name,
       version,
       range,
+      group,
       where: first.where,
       alsoIn: uniqSorted(entries.slice(1).map((e) => e.where).filter((w) => w !== first.where)).slice(0, 20),
     });
@@ -1491,6 +1517,37 @@ function addWorkflowCommands(ctx, out, ciFiles) {
   }
 }
 
+// Install command for the detected package manager, used when no setup command is declared locally.
+function impliedSetup(ctx, pm) {
+  const has = (f) => isFile(ctx, f);
+  const pick = (cmd, ...files) => {
+    const file = files.find(has);
+    return file ? { cmd, source: `implied:${file}` } : null;
+  };
+  switch (pm) {
+    case 'pnpm': return has('package.json') ? pick('pnpm install', 'pnpm-lock.yaml', 'package.json') : null;
+    case 'yarn': return has('package.json') ? pick('yarn install', 'yarn.lock', 'package.json') : null;
+    case 'bun': return has('package.json') ? pick('bun install', 'bun.lock', 'bun.lockb', 'package.json') : null;
+    case 'npm':
+      if (!has('package.json')) return null;
+      return has('package-lock.json') ? pick('npm ci', 'package-lock.json') : pick('npm install', 'package.json');
+    case 'uv': return pick('uv sync', 'uv.lock', 'pyproject.toml');
+    case 'poetry': return pick('poetry install', 'poetry.lock', 'pyproject.toml');
+    case 'pdm': return pick('pdm install', 'pdm.lock', 'pyproject.toml');
+    case 'pip': return has('requirements.txt') ? pick('pip install -r requirements.txt', 'requirements.txt') : null;
+    case 'bundler': return pick('bundle install', 'Gemfile.lock', 'Gemfile');
+    case 'composer': return pick('composer install', 'composer.lock', 'composer.json');
+    case 'go': return pick('go mod download', 'go.sum', 'go.mod');
+    default: return null;
+  }
+}
+
+function addImpliedSetup(ctx, out, pm) {
+  if (out.cmds.setup.length > 0) return; // something local already declares setup
+  const implied = impliedSetup(ctx, pm);
+  if (implied) out.add('setup', implied.cmd, implied.source);
+}
+
 function detectCommands(ctx, pms, frameworks, ciFiles) {
   const out = createCommands(ctx);
   safe(ctx, 'package.json scripts', () => addPackageScripts(ctx, out, pms.node), null);
@@ -1502,6 +1559,8 @@ function detectCommands(ctx, pms, frameworks, ciFiles) {
   safe(ctx, 'python commands', () => addPythonCommands(ctx, out, pms.python, frameworks), null);
   safe(ctx, 'cargo commands', () => addCargoCommands(ctx, out), null);
   safe(ctx, 'go commands', () => addGoCommands(ctx, out), null);
+  // Before CI, so an identical CI command folds into this entry instead of replacing it.
+  safe(ctx, 'implied setup', () => addImpliedSetup(ctx, out, pms.primary), null);
   safe(ctx, 'workflow commands', () => addWorkflowCommands(ctx, out, ciFiles), null);
   return out.cmds;
 }
@@ -1566,43 +1625,130 @@ function detectAgentConfigs(ctx) {
   return [...found.entries()].sort(([a], [b]) => sortStr(a, b)).map(([p, tool]) => ({ path: p, tool }));
 }
 
+const DOC_TEXT_EXTENSIONS = new Set(['', '.md', '.markdown', '.txt', '.rst', '.adoc']);
 const ADR_DIRS = ['docs/adr', 'docs/adrs', 'docs/decisions', 'docs/rfcs', 'docs/architecture'];
+const MAX_DOC_WALK = 3000; // directory entries visited when looking for docs/**/contributing*.md
+const MAX_CONTRIBUTING_DOCS = 3;
+
+// Files under `rel` (any depth up to maxDepth) whose name passes `test`, without following symlinked dirs.
+function findFiles(ctx, rel, maxDepth, test) {
+  const out = [];
+  let visited = 0;
+  const visit = (dir, depth) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(path.join(ctx.root, dir), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => sortStr(a.name, b.name));
+    for (const entry of entries) {
+      if (++visited > MAX_DOC_WALK) return;
+      const child = joinRel(dir, entry.name);
+      const kind = entryKind(ctx.root, child, entry);
+      if (kind === 'file' && test(entry.name)) out.push(child);
+      else if (kind === 'dir' && depth < maxDepth && !SKIP_DIRS.has(entry.name)) visit(child, depth + 1);
+    }
+  };
+  visit(rel, 1);
+  return out;
+}
+
+// docs/<lang>/docs/... translations repeat the English page; keep English only.
+const TRANSLATED_DOCS = /^docs\/(?!en\/)[a-z]{2}(?:-[A-Za-z]+)?\/docs\//;
 
 function detectDocs(ctx) {
   const rootFiles = ctx.files.filter((f) => !f.includes('/'));
   const readmes = rootFiles.filter((f) => /^README(\..+)?$/i.test(f)).sort(sortStr);
   const contributing = rootFiles.filter((f) => /^CONTRIBUTING(\..+)?$/i.test(f)).sort(sortStr);
+  if (isDir(ctx, 'docs')) {
+    const nested = findFiles(ctx, 'docs', 5, (name) => /^contributing(\..+)?\.md$/i.test(name))
+      .filter((f) => !TRANSLATED_DOCS.test(f))
+      .sort(byDepthThenPath)
+      .slice(0, MAX_CONTRIBUTING_DOCS);
+    contributing.push(...nested);
+  }
   const adrs = ctx.files.filter((f) => ADR_DIRS.includes(dirName(f))).sort(sortStr);
-  return { readmes, contributing, adrs };
+  // Instruction files already in the repo state rules too.
+  const agentDocs = ctx.files.filter((f) => ['AGENTS.md', 'CLAUDE.md'].includes(baseName(f))).sort(byDepthThenPath);
+  return { readmes, contributing, adrs, agentDocs };
 }
 
-const SIGNAL_PHRASES = /\b(must not|never|do not|don[’']t|always|required|forbidden|banned|locked|invariants?)\b/i;
-const SIGNAL_KEYWORDS = /\b(MUST|SHALL)\b/;
-const DOC_TEXT_EXTENSIONS = new Set(['', '.md', '.markdown', '.txt', '.rst', '.adoc']);
+// Hard-rule candidates. Instruction files, ADRs and contributing guides state rules, so any
+// line with a modal word counts there. README mostly describes the product, so a line counts only
+// under a rules-like heading or when it uses RFC-style capitals.
+// "always" and "required" are only rules in imperative form ("Always run the linter", "X is required").
+const RULE_WORDS = /\b(must not|must|never|do not|don[’']t|forbidden|banned|locked|invariants?|shall|should not|shouldn[’']t)\b|(?:^|[.!?:]\s+)always\b|\b(?:is|are|be) required\b/i;
+const SHOUTED_RULE = /\b(MUST NOT|MUST|NEVER|SHALL)\b/;
+const RULE_HEADING = /rules|conventions|guidelines|contributing|development|architecture|constraints/i;
+const NOT_A_RULE = [
+  /if you want/i, // optional-feature notes: "Required if you want to use the TestClient"
+  /^\[?`[^`]+`\]?(?:\([^)]*\))?\s+[-–—]\s/, // option or parameter description: "`name` - ..."
+  /\?$/, // questions
+];
+const MAX_RULES_PER_FILE = 10;
+const MAX_RULE_CHARS = 240;
 
-function hardRuleCandidates(ctx, docFiles) {
+// Whole sentence(s) up to the limit: cut at a sentence end, else at a word with an ellipsis.
+function fitSentence(text, signal) {
+  if (text.length <= MAX_RULE_CHARS) return text;
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const hit = sentences.find((s) => signal.test(s)) || sentences[0];
+  if (hit.length <= MAX_RULE_CHARS) return hit;
+  const cut = hit.slice(0, MAX_RULE_CHARS - 1);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), 1)).replace(/[\s,;:(\-]+$/, '')}…`;
+}
+
+function ruleLinesFromFile(ctx, rel, strict) {
+  const text = readText(ctx, rel);
+  if (!text) return [];
+  const found = [];
+  const headings = [];
+  let inFence = false;
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length && found.length < MAX_RULES_PER_FILE; i++) {
+    const trimmed = lines[i].trim();
+    if (/^(```|~~~)/.test(trimmed)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence || !trimmed || trimmed.startsWith('<!--') || trimmed.startsWith('|')) continue;
+
+    const heading = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      while (headings.length && headings[headings.length - 1].level >= heading[1].length) headings.pop();
+      headings.push({ level: heading[1].length, text: heading[2] });
+      continue;
+    }
+
+    const line = trimmed.replace(/^(?:>\s*)?(?:[-*+]|\d+[.)])\s+/, '').replace(/\s+/g, ' ');
+    const shouted = SHOUTED_RULE.test(line);
+    const underRulesHeading = headings.some((h) => RULE_HEADING.test(h.text));
+    if (strict && !shouted && !underRulesHeading) continue;
+    const signal = shouted ? SHOUTED_RULE : RULE_WORDS;
+    if (!signal.test(line)) continue;
+    if (NOT_A_RULE.some((re) => re.test(line))) continue;
+    found.push({ text: fitSentence(line, signal), source: `${rel}:${i + 1}` });
+  }
+  return found;
+}
+
+function hardRuleCandidates(ctx, docs) {
+  const sources = [
+    ...docs.adrs.map((f) => [f, false]),
+    ...docs.contributing.map((f) => [f, false]),
+    ...docs.agentDocs.map((f) => [f, false]),
+    ...docs.readmes.map((f) => [f, true]),
+  ];
   const out = [];
   const seen = new Set();
-  for (const rel of docFiles) {
-    if (out.length >= MAX_HARD_RULES) break;
+  for (const [rel, strict] of sources) {
     if (!DOC_TEXT_EXTENSIONS.has(path.extname(rel).toLowerCase())) continue;
-    const text = readText(ctx, rel);
-    if (!text) continue;
-    let inFence = false;
-    const lines = text.split(/\r?\n/);
-    for (let i = 0; i < lines.length && out.length < MAX_HARD_RULES; i++) {
-      const trimmed = lines[i].trim();
-      if (/^(```|~~~)/.test(trimmed)) {
-        inFence = !inFence;
-        continue;
-      }
-      if (inFence || !trimmed || trimmed.startsWith('<!--') || trimmed.startsWith('|')) continue; // skip table rows
-      if (!SIGNAL_PHRASES.test(trimmed) && !SIGNAL_KEYWORDS.test(trimmed)) continue;
-      let line = trimmed.replace(/^(?:>\s*)?(?:[-*+]|\d+[.)])\s+/, '').replace(/\s+/g, ' ');
-      if (line.length > 200) line = `${line.slice(0, 199)}…`;
-      if (seen.has(line)) continue;
-      seen.add(line);
-      out.push({ text: line, source: `${rel}:${i + 1}` });
+    for (const candidate of ruleLinesFromFile(ctx, rel, strict)) {
+      if (out.length >= MAX_HARD_RULES) return out;
+      if (seen.has(candidate.text)) continue;
+      seen.add(candidate.text);
+      out.push(candidate);
     }
   }
   return out;
@@ -1767,7 +1913,7 @@ export function detect(dir = process.cwd()) {
   const pms = safe(ctx, 'package manager', () => detectPackageManagers(ctx, primary), { node: null, python: null, primary: null });
   const frameworks = safe(ctx, 'framework', () => collectFrameworks(ctx), []);
   const ci = safe(ctx, 'ci', () => detectCi(ctx), []);
-  const docs = safe(ctx, 'docs', () => detectDocs(ctx), { readmes: [], contributing: [], adrs: [] });
+  const docs = safe(ctx, 'docs', () => detectDocs(ctx), { readmes: [], contributing: [], adrs: [], agentDocs: [] });
   const docFiles = [...docs.readmes, ...docs.contributing, ...docs.adrs];
 
   return {
@@ -1778,13 +1924,14 @@ export function detect(dir = process.cwd()) {
     layout: workspaces.length > 0 || marker ? 'monorepo' : 'single',
     workspaces,
     packageManager: pms.primary,
+    packageManagerVersion: safe(ctx, 'package manager version', () => packageManagerVersion(ctx, pms.primary), null),
     frameworks,
     languageVersion: detectLanguageVersions(ctx),
     commands: detectCommands(ctx, pms, frameworks, ci),
     ci,
     agentConfigs: safe(ctx, 'agent config', () => detectAgentConfigs(ctx), []),
     docs: uniqSorted(docFiles).slice(0, MAX_DOCS),
-    hardRuleCandidates: safe(ctx, 'hard rule', () => hardRuleCandidates(ctx, docFiles), []),
+    hardRuleCandidates: safe(ctx, 'hard rule', () => hardRuleCandidates(ctx, docs), []),
     infra: safe(ctx, 'infra', () => detectInfra(ctx), {}),
     env: safe(ctx, 'env', () => detectEnv(ctx), { files: [], gitignored: [] }),
     versionFiles: safe(ctx, 'version file', () => detectVersionFiles(ctx), []),
