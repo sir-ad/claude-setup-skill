@@ -25,7 +25,7 @@ Use plan mode for changes under `src/billing/`.
 
 Sources: https://code.claude.com/docs/en/settings , https://code.claude.com/docs/en/permissions
 
-Strict JSON: no comments, no trailing commas. Precedence, highest first: managed, `--settings`, `settings.local.json`, `settings.json`, `~/.claude/settings.json`. Arrays merge across files. A deny in any scope beats an allow in any scope.
+Strict JSON: no comments, no trailing commas. Some permission modes refuse writes under `.claude/`; if so, print the file content for the user instead of working around it. Precedence, highest first: managed, `--settings`, `settings.local.json`, `settings.json`, `~/.claude/settings.json`. Arrays merge across files. A deny in any scope beats an allow in any scope.
 
 ```json
 {
