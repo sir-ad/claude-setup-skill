@@ -1,0 +1,3 @@
+# General conventions
+
+- Small commits.

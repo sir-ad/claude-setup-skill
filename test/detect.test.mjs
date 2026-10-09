@@ -596,15 +596,25 @@ test('a project is not reported as its own framework', () => {
   assert.deepEqual(names(detect(rust).frameworks), ['tokio']);
 });
 
-test('test directory holds exactly one runnable test file, so `node --test` stays predictable', () => {
-  const found = [];
+test('fixtures hold no runnable scripts and every script in test/ is a .test.mjs file', () => {
+  const scriptPattern = /\.(c|m)?js$/;
+
+  // Recursively: nothing under test/fixtures/ may be picked up by `node --test`.
+  const fixtureScripts = [];
   const visit = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const abs = path.join(dir, entry.name);
       if (entry.isDirectory()) visit(abs);
-      else if (/\.(c|m)?js$/.test(entry.name)) found.push(path.relative(HERE, abs));
+      else if (scriptPattern.test(entry.name)) fixtureScripts.push(path.relative(HERE, abs));
     }
   };
-  visit(HERE);
-  assert.deepEqual(found, ['detect.test.mjs']);
+  visit(path.join(HERE, 'fixtures'));
+  assert.deepEqual(fixtureScripts, []);
+
+  // Directly in test/: every script must be a .test.mjs file.
+  const badTopLevel = fs
+    .readdirSync(HERE, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && scriptPattern.test(entry.name) && !entry.name.endsWith('.test.mjs'))
+    .map((entry) => entry.name);
+  assert.deepEqual(badTopLevel, []);
 });
