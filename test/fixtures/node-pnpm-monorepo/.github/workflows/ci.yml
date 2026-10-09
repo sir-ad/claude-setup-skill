@@ -1,0 +1,14 @@
+name: ci
+on: [push]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pnpm install --frozen-lockfile
+      - name: Test
+        run: pnpm test
+      - name: Lint and build
+        run: |
+          pnpm lint
+          pnpm build

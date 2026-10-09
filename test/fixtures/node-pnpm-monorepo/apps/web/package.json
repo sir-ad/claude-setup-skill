@@ -1,0 +1,7 @@
+{
+  "name": "@acme/web",
+  "version": "0.1.0",
+  "scripts": { "dev": "next dev", "build": "next build" },
+  "dependencies": { "next": "15.1.0", "react": "^19.0.0" },
+  "devDependencies": { "tailwindcss": "^3.4.0" }
+}

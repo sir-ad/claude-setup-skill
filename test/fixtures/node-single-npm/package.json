@@ -1,0 +1,14 @@
+{
+  "name": "tiny-vite-app",
+  "version": "1.2.3",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "prebuild": "echo hi",
+    "test": "vitest",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": { "react": "^18.3.1" },
+  "devDependencies": { "vite": "^5.4.0", "vitest": "^2.1.0", "eslint": "^9.0.0", "typescript": "^5.6.0" }
+}
