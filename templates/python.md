@@ -1,126 +1,107 @@
 # Template: Python project
 
-Reference for `/claude-setup` when `pyproject.toml`, `setup.py`, or `requirements.txt` exists.
+Use when `pyproject.toml`, `setup.py`, `setup.cfg`, `Pipfile` or `requirements.txt` exists and Python is the primary language. Covers apps, libraries, Django, FastAPI, Flask and scripts. Workspaces (uv, poetry path deps) are handled as one project with a longer repo map.
 
-## Detection signals & package manager
-- `pyproject.toml` with `[tool.poetry]` → Poetry
-- `pyproject.toml` with `[tool.uv]` or `uv.lock` → uv
-- `pyproject.toml` with `[tool.hatch]` → hatch
-- `pyproject.toml` with `[tool.rye]` → rye
-- `pyproject.toml` with `[build-system].requires = ["setuptools..."]` → setuptools
-- Plain `requirements.txt` (no pyproject) → pip + venv
+## Detection signals
+- `primary: "python"`. `languageVersion.python` holds the `requires-python` range.
+- `packageManager`: `uv`, `poetry`, `pdm` or `pip`. The detector already prefixes commands (`uv run pytest`, `poetry run ruff check .`). Use them as given.
+- `frameworks`: `django`, `fastapi`, `flask`, `pydantic`, `sqlalchemy` set the project type. `pytest`, `ruff`, `mypy` set the tool commands.
+- `commands.dev` often holds a `poe` task or a `project.scripts` entry. Prefer those over inventing a run command.
+- `versionFiles` contains `pyproject.toml` when the project has a version (a library or a released app).
 
-Use the detected manager in commands. Show `uv run`, `poetry run`, `python -m`, etc.
+## AGENTS.md
+- **Commands**: setup (`uv sync`, `poetry install`, `pip install -r requirements.txt`), test, lint, format, typecheck, dev, from the detector. If tests need services (database, Redis), say how to start them only if a compose file or README says so.
+- **Repo map**: package directory (`src/<name>/` or `<name>/`), `tests/`, `migrations/` or `alembic/`, `scripts/`, `notebooks/` if present. For Django list the apps. For FastAPI name the router and settings modules.
+- **Conventions worth writing**: layout (src layout or flat); how settings are loaded (env, pydantic settings, Django settings module); test layout and fixtures in `conftest.py`; async or sync style when the code base is consistent; type checking strictness only if configured (`strict = true`).
+- **Version notes**: pull from `knowledge/python.md` for the detected Python, framework, ruff and package manager versions. Do not state them from memory.
+- **Boundaries**: lockfile (`uv.lock`, `poetry.lock`, `pdm.lock`) changes through the tool only. Applied migrations are never edited; add a new one. Do not edit generated files (protobuf output, OpenAPI clients). Never read or write `.env*`, and never print settings that hold secrets.
 
-## Detect framework / project type
-- `django` in deps → Django (App Router-shaped: `apps/`, `manage.py`)
-- `flask`/`fastapi`/`starlette` in deps → API framework
-- `pytest` config → test command uses pytest
-- `mypy` / `pyright` / `ruff` config → typing/lint tooling
-- `mlflow`/`wandb`/`pytorch`/`jax`/`tensorflow` → ML project (different conventions)
+## CLAUDE.md
+`@AGENTS.md` on the first line. Claude-only lines only if the user has them.
 
-## CLAUDE.md should include
-
-```md
-# {{PROJECT_NAME}}
-
-## Stack
-- Python {{from .python-version / pyproject requires-python}}
-- Package manager: {{detected}}
-- Framework: {{Django | FastAPI | Flask | ML | library | ...}}
-- Type checker: {{mypy | pyright | none}}
-- Linter: {{ruff | flake8 | pylint | none}}
-
-## Commands
-- Install:    `{{pm}} install` or `pip install -r requirements.txt`
-- Run:        `{{pm}} run <entry>` or `python -m {{module}}`
-- Test:       `pytest` (or `{{pm}} run pytest`)
-- Lint:       `ruff check .` (or whatever's configured)
-- Format:     `ruff format .` or `black .`
-- Typecheck:  `mypy .` or `pyright`
-
-## Repo map
-- {{list significant dirs: src/, app/, tests/, migrations/, etc.}}
-
-## Hard rules
-- {{From README/ADRs only}}
-```
-
-## settings.json permissions
-
+## .claude/settings.json
+Allow the exact tools in the detector output, run through the project's environment manager. Shown for uv. For poetry replace `uv run` with `poetry run` and `uv sync` with `poetry install`. For plain pip drop the prefix and use `python -m pytest *` if that is how tests run.
 ```json
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(python *)",
-      "Bash(python3 *)",
-      "Bash(pip *)",
-      "Bash({{pm}} *)",
-      "Bash(pytest *)",
-      "Bash(ruff *)",
-      "Bash(mypy *)",
-      "Bash(black *)",
-      "Bash(pyright)",
-      "Bash(git status)",
-      "Bash(git diff *)",
-      "Bash(git log *)",
+      "Bash(uv sync *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff *)",
+      "Bash(uv run mypy *)",
       "Bash(git add *)",
       "Bash(git commit *)"
     ],
+    "ask": ["Bash(git push *)"],
     "deny": [
       "Bash(rm -rf *)",
       "Bash(git push --force *)",
+      "Bash(git push -f *)",
       "Bash(git reset --hard *)",
-      "Bash(pip install -e *)"
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/*.pem)"
     ]
   }
 }
 ```
+- Add only the tools that appear in `frameworks` (no `mypy` entry unless mypy is detected). Add `Bash(uv run python manage.py test *)` for Django.
+- For libraries add `Bash(twine upload *)`, `Bash(uv publish *)` and `Bash(poetry publish *)` to deny.
+- Do not allow `python *` or `uv run *`. They run arbitrary code.
+- `Read(./.env.*)` also blocks `.env.example`. When the detector's `env.files` lists an example file, deny the real env files by name instead (for example `Read(./.env.local)`, `Read(./.env.production)`) so the example stays readable.
 
-Drop `pm` allow if pip-only. Add `Bash(twine upload *)` to **deny** for libraries.
+## Formatter hook (optional)
+Only when `ruff` is detected and the user says yes. Needs `jq`.
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path | select(endswith(\".py\"))' | xargs -r uv run ruff format"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+Use `poetry run ruff format` or plain `ruff format` to match the package manager. If Black is the configured formatter, use `black`. Without `jq`: `node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const f=JSON.parse(s).tool_input.file_path||'';if(f.endsWith('.py'))require('child_process').spawnSync('uv',['run','ruff','format',f])})"`
 
 ## Path-scoped rules
+Only where the project has conventions it documents. Python repos usually follow community defaults, so write none rather than noise. Mirror rules with `node "${CLAUDE_SKILL_DIR}/scripts/sync-rules.mjs" --targets <tools>` if the user picked other agents.
+- Django, `**/migrations/**`: never edit applied migrations, create with `makemigrations`, name them. Add when more than a handful of migrations exist.
+- Django, `**/models.py` or `**/views.py`: only when README or docs state a rule (permission checks, soft delete, query helpers).
+- FastAPI, router and schema directories: request and response models live in one place, handlers do not return ORM objects. Only if the code base already does this.
+- SQLAlchemy with Alembic, `alembic/versions/**`: same migration discipline as Django.
+- `tests/**/*.py`: fixture and factory conventions, markers that gate slow tests.
 
-- Django: `apps/**/models.py` — migration discipline rule (always `makemigrations` not raw SQL); `apps/**/views.py` — auth/permission decorator rule.
-- FastAPI/Flask: `app/api/**/*.py` — pydantic schema validation rule, response shape rule.
-- ML: `notebooks/**/*.ipynb` — reproducibility rule (seed everything, log to wandb/mlflow).
-- Tests: `tests/**/*.py` — fixture conventions, factory patterns.
+## Reviewer subagent
+`.claude/agents/python-reviewer.md`, frontmatter `name: python-reviewer`, `description: Reviews Python changes for typing gaps, async mistakes, error handling and unsafe data access. Use after editing .py files.`, `tools: Read, Grep, Glob`.
+1. Public functions have parameter and return annotations when the project is typed. No new `Any` without a reason.
+2. No bare `except:` or `except Exception: pass`. Libraries raise specific exceptions.
+3. Async code: no blocking calls (`requests`, `time.sleep`, sync DB drivers) inside `async def`. No `asyncio.run()` inside a running loop.
+4. Mutable default arguments. Module-level state that makes tests order dependent.
+5. SQL built with f-strings or `%` formatting. Raw queries must be parameterized.
+6. `eval`, `exec`, `pickle.loads` or `yaml.load` (without a safe loader) on external input.
+7. Django: queryset loops that touch relations without `select_related` or `prefetch_related`; migrations edited after being applied; `DEBUG` or secret key read from source.
+8. FastAPI and Pydantic: handlers return validated models, not raw dicts from the DB; settings read from env, not constants.
+9. Tests: new behavior has a test, no `assert True` filler, fixtures preferred over setup code repeated per test.
 
-Generate only the rules that have real signal in this project.
-
-## Code-reviewer subagent (`agents/python-reviewer.md`)
-
-Tools: `Read, Grep, Glob`.
-
-Checklist:
-1. Type hints — public functions typed, no missing return types, no implicit `Any`.
-2. Async — `await` consistency, no `asyncio.run()` inside coroutines, no blocking I/O in async paths.
-3. Error handling — bare `except:` flagged, custom exception classes for libraries.
-4. Imports — `from x import *` flagged, circular imports flagged.
-5. Tests — pytest patterns, fixtures over setup/teardown, no `assert True` filler.
-6. Security — no `eval`/`exec` in prod paths, parameterized SQL, secrets via env not source.
-
-For Django specifically: ORM N+1 detection (look for `.objects.all()` followed by attribute access in loops), `select_related`/`prefetch_related` discipline.
-
-For ML: deterministic seeds (`torch.manual_seed`, `np.random.seed`, `random.seed`), `.to(device)` consistency.
-
-## Skills to generate
-
-- `/release` if `pyproject.toml` has version AND CHANGELOG.md.
-- `/db-migrate` for Django (`python manage.py makemigrations && migrate`).
-- `/test-fast` if pytest has slow markers (e.g. `pytest -m "not slow"`).
+## Skills
+- `release`: when `versionFiles` has `pyproject.toml` with a version and a changelog. Bump version, update changelog, build, tag. Use `uv build` or `poetry build` to match the tool. Never include a publish step unless the repo already automates it.
+- `db-migrate`: when Django or Alembic is present. Steps: create migration, review the generated file, apply to a dev database, run tests. Skip when migrating is one command with nothing to review.
+- `test-fast`: only when pytest markers such as `slow` or `integration` are defined in `pyproject.toml`.
 
 ## .worktreeinclude
-
-```
-.env
-.env.local
-.python-version
-{{if CLAUDE.md / .mcp.json gitignored, include}}
-.claude/settings.local.json
-```
+List only entries in `env.gitignored` (`.env`, `.env.local`, `.claude/settings.local.json`, `CLAUDE.local.md`, `.mcp.json`). Do not add `.venv`; each worktree creates its own through the package manager. Skip the file when the list is empty.
 
 ## What NOT to generate
-
-- No `output-styles/`, no `commands/`, no `agent-memory/`.
-- No rules unless conventions are documented somewhere — Python projects often follow PEP-8 + community defaults; documenting them in rules is noise.
+- No rules that restate PEP 8 or ruff defaults.
+- No `output-styles/`, `commands/` or `agent-memory/`.
+- No notebook or ML rules unless `notebooks/` exists and the README states reproducibility requirements.
+- No `Bash(*)`, no `defaultMode` of `auto` or `bypassPermissions`.
