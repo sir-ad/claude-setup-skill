@@ -94,6 +94,8 @@ Only for directories with real conventions. Mirror rules with `node "${CLAUDE_SK
 - `app/controllers/**`: authorization pattern (`authorize` calls, `before_action` conventions) when the app enforces one.
 
 ## Reviewer subagent
+These are candidate checks, not defaults. Keep a line only when a repo fact backs it (lint or type config, a documented rule, a hard rule, a detected version), and grep the repo first: if the code already uses a pattern on purpose, drop the line or scope it with the exception.
+
 `.claude/agents/ruby-reviewer.md`, frontmatter `name: ruby-reviewer`, `description: Reviews Ruby and Rails changes for unsafe queries, mass assignment, N+1 queries, unsafe migrations and swallowed errors. Use after editing .rb or .erb files.`, `tools: Read, Grep, Glob`.
 1. Strong parameters on every controller action that writes. No `params.permit!`.
 2. SQL built with string interpolation in `where`, `order`, `find_by_sql` or `execute`. Use bind parameters.

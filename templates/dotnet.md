@@ -86,13 +86,15 @@ Only for directories with real conventions. Mirror rules with `node "${CLAUDE_SK
 - `**/appsettings*.json` only to say where secrets go and which keys are required, never their values.
 
 ## Reviewer subagent
+These are candidate checks, not defaults. Keep a line only when a repo fact backs it (lint or type config, a documented rule, a hard rule, a detected version), and grep the repo first: if the code already uses a pattern on purpose, drop the line or scope it with the exception.
+
 `.claude/agents/dotnet-reviewer.md`, frontmatter `name: dotnet-reviewer`, `description: Reviews C# changes for async misuse, disposal bugs, EF Core query mistakes and DI lifetime errors. Use after editing .cs files.`, `tools: Read, Grep, Glob`.
 1. Async: no `.Result`, `.Wait()` or `GetAwaiter().GetResult()` on request paths; no `async void` outside event handlers; `CancellationToken` is accepted and passed down in public async methods.
 2. `IDisposable` and `IAsyncDisposable` are disposed with `using` or `await using`. `HttpClient` comes from `IHttpClientFactory` or a typed client, not `new` per call.
 3. EF Core: read-only queries use `AsNoTracking`; `ToList()` is not called before `Where`; loops that query per item; raw SQL uses the interpolated or parameterized APIs, never string concatenation.
 4. DI lifetimes: a scoped service is not captured by a singleton. DbContext is scoped.
-5. Nullable reference types: `!` suppressions and `#pragma warning disable` need a reason. New public APIs have correct nullability.
-6. `throw ex;` loses the stack; use `throw;`. Exceptions are not used for control flow on hot paths.
+5. Where nullable reference types are enabled, `!` suppressions and `#pragma warning disable` need a reason. New public APIs have correct nullability.
+6. `throw ex;` loses the stack; use `throw;`.
 7. Logging uses message templates with arguments, not string interpolation. No secrets, tokens or personal data in logs.
 8. Web APIs: authorization attributes on new endpoints; input validated (`[ApiController]` or the minimal API validation the repo uses); no entity types returned directly.
 9. `DateTime.Now` where `UtcNow` or `TimeProvider` is the repo's standard.

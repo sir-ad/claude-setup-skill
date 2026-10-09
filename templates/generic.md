@@ -55,6 +55,8 @@ None by default. Offer one only when the repo has a single-file formatter in its
 None. Generic means there is not enough evidence to write rules. If the repo has a clearly separate directory with its own documented rules (for example `infra/**`), one rule for that directory is fine. Mirror it with `node "${CLAUDE_SKILL_DIR}/scripts/sync-rules.mjs" --targets <tools>` if the user picked other agents.
 
 ## Reviewer subagent
+These are candidate checks, not defaults. Keep a line only when a repo fact backs it (lint or type config, a documented rule, a hard rule, a detected version), and grep the repo first: if the code already uses a pattern on purpose, drop the line or scope it with the exception.
+
 None by default. Without a known language the checklist would be generic. If the user asks for one, write it from the repo's own documented rules and keep `tools: Read, Grep, Glob`.
 
 ## Skills
