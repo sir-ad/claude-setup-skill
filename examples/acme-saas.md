@@ -1,68 +1,116 @@
 # Example: acme-saas (Node monorepo, pnpm + turbo)
 
-This is what `/claude-setup` produced for a typical SaaS Node monorepo. Useful as a reference for how `templates/node-monorepo.md` translates into actual files.
+This is what `/claude-setup` produced for a typical SaaS Node monorepo. The project is fictional. Use it to see how `templates/node-monorepo.md` and the `knowledge/` notes turn into actual files.
 
-## Inputs the skill detected
+## What the detector found
 
-- `package.json` with `"workspaces": ["apps/*", "packages/*"]`
-- `pnpm-lock.yaml` at root → pnpm
-- `turbo.json` at root → turborepo
-- `apps/web/package.json` depends on `next@15` → App Router
-- `apps/api/package.json` depends on `hono` + `wrangler` → Cloudflare Workers
-- `packages/db/` with `drizzle.config.ts` → Drizzle + Postgres
-- `packages/ui/` with `components.json` → shadcn/ui
-- `CHANGELOG.md` + `.changeset/` → `/release` skill is justified
-- `vercel.json` at `apps/web` → `/preview-deploy` skill is justified
-- README mentions: "PII never in logs", "Drizzle migrations are append-only", "App Router only"
+From `node scripts/detect.mjs .`:
 
-## Files generated
+- `primary: node`, `layout: monorepo`, `packageManager: pnpm`
+- `workspaces`: `apps/web`, `apps/api`, `packages/db`, `packages/ui`
+- `frameworks`: `next 15`, `react 19`, `tailwindcss 4`, `turbo 2`, `hono`, `drizzle-orm`, `vitest`, `prettier`
+- `commands`: install, build, test, lint, typecheck and dev, each with its source (`package.json#scripts.*` or `.github/workflows/ci.yml`)
+- `agentConfigs`: `.cursor/rules/` exists, so Cursor is selected next to Claude
+- `versionFiles`: `package.json`, with `CHANGELOG.md` and `.changeset/` present, so a `/release` skill is justified
+- `infra`: `vercel: true`, so a `/preview-deploy` skill is justified
+- `hardRuleCandidates` from `README.md`: "PII never in logs", "Drizzle migrations are append-only", "App Router only", and two more that the skill dropped as marketing text
+
+## Files written
 
 ```
 acme-saas/
-├── CLAUDE.md                          # stack + commands + hard rules
-├── .worktreeinclude                   # .env, CLAUDE.md, .mcp.json
+├── AGENTS.md                          # source of truth, read by every agent
+├── CLAUDE.md                          # @AGENTS.md + one Claude-only line
+├── .worktreeinclude                   # .env, .env.local, CLAUDE.local.md
+├── .cursor/rules/                     # mirrors of .claude/rules, via sync-rules.mjs
+│   ├── web-next.mdc
+│   ├── api-hono.mdc
+│   └── db-drizzle.mdc
 └── .claude/
-    ├── settings.json                  # pnpm/turbo/git/gh allows, force-push deny
+    ├── settings.json                  # pnpm/turbo/git allows; force-push and .env denies
     ├── rules/
-    │   ├── web-next.md                # apps/web/** — App Router, RSC vs client, server actions
-    │   ├── api-hono.md                # apps/api/** — Hono handlers, env via wrangler
-    │   ├── db-drizzle.md              # packages/db/** — schema + append-only migrations
-    │   ├── ui-shadcn.md               # packages/ui/** — composability, no app-specific logic
-    │   └── tests.md                   # **/*.test.ts — vitest, no live DB in unit tests
+    │   ├── web-next.md                # apps/web/**: App Router, RSC vs client, server actions
+    │   ├── api-hono.md                # apps/api/**: Hono handlers, env via wrangler
+    │   └── db-drizzle.md              # packages/db/**: schema + append-only migrations
     ├── agents/
-    │   └── ts-reviewer.md             # read-only Read/Grep/Glob; TS strict + RSC + PII checks
+    │   └── ts-reviewer.md             # Read/Grep/Glob; TS strict, RSC, PII checks
     └── skills/
-        ├── release/SKILL.md           # changeset version → build → test → tag
+        ├── release/SKILL.md           # changeset version, build, test, tag
         └── preview-deploy/SKILL.md    # vercel deploy + smoke check
 ```
 
-## What was skipped (and why)
+`.gitignore` got `CLAUDE.local.md`, `.claude/settings.local.json` and `.claude/worktrees/` appended. No formatter hook: the user answered no in the plan step.
 
-- `.claude/output-styles/` — no use case
-- `.claude/commands/` — skills supersede per Anthropic docs
-- `.claude/agent-memory/` — populated automatically when subagents run
-- `/db-migrate` skill — `drizzle-kit push` is one command; a skill would just wrap it
+## AGENTS.md (excerpt)
 
-## Hard rules extracted from README
+```markdown
+# acme-saas
 
-The skill scraped these phrases and encoded each in the appropriate file:
+TypeScript monorepo. pnpm workspaces + Turborepo. Next.js 15 (apps/web), Hono (apps/api), Drizzle + Postgres (packages/db).
+
+## Commands
+- Install: `pnpm install --frozen-lockfile`
+- Build: `pnpm run build`
+- Test: `pnpm test`
+- One package: `pnpm -C packages/ui run test`
+- Lint: `pnpm run lint`
+- Typecheck: `pnpm run typecheck`
+- Dev: `pnpm run dev`
+
+## Hard rules
+- "PII never in logs." (README.md:41)
+- "Drizzle migrations are append-only." (README.md:57)
+- "App Router only. No Pages Router." (README.md:63)
+
+## Version notes
+- Next.js 15: `cookies()`, `headers()`, `params` and `searchParams` are async. Await them.
+- Next.js 15: `fetch` responses are not cached by default. Opt in where you want caching.
+- Tailwind 4: configuration lives in CSS (`@import "tailwindcss"`, `@theme`). Don't add a `tailwind.config.js` unless the repo already has one.
+- Turborepo 2: tasks go under `tasks` in `turbo.json`. The old `pipeline` key is gone.
+
+## Boundaries
+- Never: edit applied files in `packages/db/migrations/`; commit `.env*`.
+- Ask first: new dependencies; changes to the database schema.
+```
+
+Every command above has a source in the detector output. The version notes appear because the project declares those majors. A repo on Tailwind 3 would get no Tailwind note.
+
+## CLAUDE.md
+
+```markdown
+@AGENTS.md
+
+## Claude Code
+Use plan mode for changes under `packages/db/`.
+```
+
+Claude Code reads AGENTS.md on its own only when no CLAUDE.md exists. The import makes sure it still gets read.
+
+## Hard rules and where they went
 
 | Source phrase | Encoded as |
 |---|---|
-| "PII never in logs" | `CLAUDE.md` Hard rules + `agents/ts-reviewer.md` checklist |
-| "Drizzle migrations are append-only" | `rules/db-drizzle.md` |
-| "App Router only — no Pages Router" | `rules/web-next.md` |
+| "PII never in logs" | AGENTS.md Hard rules + `agents/ts-reviewer.md` checklist |
+| "Drizzle migrations are append-only" | AGENTS.md Hard rules + `rules/db-drizzle.md` |
+| "App Router only. No Pages Router." | AGENTS.md Hard rules + `rules/web-next.md` |
 | "Server Actions for mutations, RSC for reads" | `rules/web-next.md` |
-| "Hono on Cloudflare Workers — no Node-only deps" | `rules/api-hono.md` |
+| "Hono on Cloudflare Workers, no Node-only deps" | `rules/api-hono.md` |
+
+## What was skipped, and why
+
+- `.claude/output-styles/`: no use case
+- `.claude/commands/`: skills cover it
+- `.claude/agent-memory/`: filled in automatically when subagents run
+- `/db-migrate` skill: `drizzle-kit push` is one command; a skill would only wrap it
+- `ui-shadcn.md` and `tests.md` rules: the conventions are standard, so AGENTS.md needs no extra file
+- `.github/copilot-instructions.md`: Copilot reads AGENTS.md on its own
 
 ## What this looks like in practice
 
-After install:
+- Open `apps/web/app/(marketing)/page.tsx` in Claude Code: `web-next.md` enters context.
+- Open `apps/api/src/routes/users.ts`: `api-hono.md` loads, `web-next.md` does not.
+- Run `/release patch`: bumps versions through changesets, builds, tests, tags.
+- Run `/preview-deploy`: `vercel deploy`, then a smoke check on the URL.
+- Ask Codex or Copilot the same question: they read the same AGENTS.md.
 
-- Open `apps/web/app/(marketing)/page.tsx` → `web-next.md` enters context.
-- Open `apps/api/src/routes/users.ts` → `api-hono.md` loads, `web-next.md` does not.
-- Run `/release patch` → bumps versions via changeset, builds, tests, tags.
-- Run `/preview-deploy` → `vercel deploy` + smoke-checks the resulting URL.
-- `@ts-reviewer review the diff` → read-only review hits TS strict, RSC boundary, PII grep.
-
-Total config: 9 files under `.claude/`, ~480 lines. One CLAUDE.md, one .worktreeinclude. No bloat.
+Verify: `/memory` in Claude Code shows AGENTS.md imported through CLAUDE.md.
