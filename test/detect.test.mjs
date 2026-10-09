@@ -64,13 +64,19 @@ test('node-pnpm-monorepo', () => {
   assert.deepEqual(localTest.alsoIn, ['.github/workflows/ci.yml']);
   // Block-scalar `run: |` lines are picked up too.
   assert.ok(cmds(r, 'lint').includes('pnpm lint'));
-  assert.deepEqual(cmds(r, 'setup'), ['pnpm install --frozen-lockfile']);
+  assert.deepEqual(cmds(r, 'setup'), ['pnpm install', 'pnpm install --frozen-lockfile']);
+  assert.equal(r.commands.setup[0].source, 'implied:pnpm-lock.yaml');
+  assert.equal(r.packageManagerVersion, '9.12.0');
+  assert.equal(framework(r, 'next').group, 'runtime');
+  assert.equal(framework(r, 'turbo').group, 'dev');
+  assert.equal(framework(r, 'react').group, 'runtime'); // peer in ui, runtime in web: strongest wins
+  assert.equal(framework(r, 'vitest').group, 'dev');
   assert.deepEqual(r.ci, ['.github/workflows/ci.yml']);
 
   assert.deepEqual(r.docs, ['README.md']);
   assert.equal(r.hardRuleCandidates.length, 1, 'code-fenced "never" must be skipped');
   assert.match(r.hardRuleCandidates[0].text, /^Packages must not import from apps\. Never import/);
-  assert.equal(r.hardRuleCandidates[0].source, 'README.md:5');
+  assert.equal(r.hardRuleCandidates[0].source, 'README.md:7');
 
   assert.deepEqual(r.env.files, ['.env.example']);
   assert.deepEqual(r.env.gitignored, ['.claude/settings.local.json', '.env', '.env.local', 'CLAUDE.local.md']);
@@ -181,7 +187,7 @@ test('empty repo still yields a complete, stable shape', () => {
   assert.deepEqual(r.languageVersion, {});
   assert.deepEqual(Object.keys(r.commands), ['build', 'test', 'lint', 'format', 'typecheck', 'dev', 'setup', 'other']);
   assert.deepEqual(Object.keys(r), [
-    'root', 'name', 'languages', 'primary', 'layout', 'workspaces', 'packageManager', 'frameworks',
+    'root', 'name', 'languages', 'primary', 'layout', 'workspaces', 'packageManager', 'packageManagerVersion', 'frameworks',
     'languageVersion', 'commands', 'ci', 'agentConfigs', 'docs', 'hardRuleCandidates', 'infra', 'env',
     'versionFiles', 'warnings',
   ]);
@@ -412,7 +418,7 @@ test('go.work and uv workspaces resolve members', () => {
 
 test('hard-rule candidates skip tables, fences, and repeat lines', () => {
   const dir = makeTmp();
-  write(dir, 'README.md', [
+  write(dir, 'CONTRIBUTING.md', [
     '| `CLAUDE.md` | always |',
     '- Always run the linter.',
     '- Always run the linter.',
@@ -424,10 +430,10 @@ test('hard-rule candidates skip tables, fences, and repeat lines', () => {
   ].join('\n'));
   write(dir, 'docs/adr/0001-db.md', 'We don\u2019t use ORMs here.\n');
   const r = detect(dir);
-  assert.deepEqual(r.hardRuleCandidates.map((c) => c.source), ['README.md:2', 'README.md:8', 'docs/adr/0001-db.md:1']);
-  assert.equal(r.hardRuleCandidates[0].text, 'Always run the linter.');
-  assert.equal(r.hardRuleCandidates[1].text.length, 200);
-  assert.deepEqual(r.docs, ['README.md', 'docs/adr/0001-db.md']);
+  assert.deepEqual(r.hardRuleCandidates.map((c) => c.source), ['docs/adr/0001-db.md:1', 'CONTRIBUTING.md:2', 'CONTRIBUTING.md:8']);
+  assert.equal(r.hardRuleCandidates[1].text, 'Always run the linter.');
+  assert.ok(r.hardRuleCandidates[2].text.length <= 240);
+  assert.deepEqual(r.docs, ['CONTRIBUTING.md', 'docs/adr/0001-db.md']);
 });
 
 // ---------------------------------------------------------------------------
@@ -617,4 +623,214 @@ test('fixtures hold no runnable scripts and every script in test/ is a .test.mjs
     .filter((entry) => entry.isFile() && scriptPattern.test(entry.name) && !entry.name.endsWith('.test.mjs'))
     .map((entry) => entry.name);
   assert.deepEqual(badTopLevel, []);
+});
+
+// ---------------------------------------------------------------------------
+// Round 3: rule sources, package manager version and default setup, dependency groups
+// ---------------------------------------------------------------------------
+
+test('hard rules: README prose is ignored unless under a rules heading or shouted', () => {
+  const dir = makeTmp();
+  write(dir, 'README.md', [
+    '# App',
+    '',
+    'Check that it has a required attribute `name`.',
+    '- `httpx` - Required if you want to use the TestClient.',
+    'You should never mind this tutorial line.',
+    '',
+    '## Development',
+    '',
+    'Never edit files in `generated/` by hand.',
+    '- `--force` - Never use this flag.',
+    'If you want, you must read the docs.',
+    '',
+    '## Other',
+    '',
+    'Secrets MUST NOT be committed.',
+  ].join('\n'));
+  const r = detect(dir);
+  assert.deepEqual(
+    r.hardRuleCandidates.map((c) => [c.source, c.text]),
+    [['README.md:9', 'Never edit files in `generated/` by hand.'], ['README.md:15', 'Secrets MUST NOT be committed.']],
+  );
+});
+
+test('hard rules: CONTRIBUTING, docs/**/contributing, ADRs and existing AGENTS.md all count', () => {
+  const dir = makeTmp();
+  write(dir, 'CONTRIBUTING.md', 'Changes that alter behaviour must be captured by `changeset`.\n');
+  write(dir, 'docs/en/docs/contributing.md', 'Do not commit build output.\n');
+  write(dir, 'docs/de/docs/contributing.md', 'Nicht doch. Do not translate this.\n');
+  write(dir, 'docs/decisions/0002-queue.md', 'Workers shall never share state.\n');
+  write(dir, 'AGENTS.md', '- Never run migrations in tests.\n');
+  const r = detect(dir);
+  assert.deepEqual(r.hardRuleCandidates.map((c) => c.source).sort(), [
+    'AGENTS.md:1', 'CONTRIBUTING.md:1', 'docs/decisions/0002-queue.md:1', 'docs/en/docs/contributing.md:1',
+  ]);
+  assert.deepEqual(r.docs, ['CONTRIBUTING.md', 'docs/decisions/0002-queue.md', 'docs/en/docs/contributing.md']);
+});
+
+test('hard rules: imperative "always" counts, descriptive "always" does not; long lines end cleanly', () => {
+  const dir = makeTmp();
+  const short = 'word '.repeat(35);
+  const long = 'word '.repeat(60);
+  write(dir, 'CONTRIBUTING.md', [
+    'You can always use the web UI instead.',
+    'Always run `make check` first.',
+    `First sentence is harmless. ${short}and it must stay under the limit. Trailing sentence.`,
+    `${long}must be kept short ${long}`,
+  ].join('\n'));
+  const r = detect(dir);
+  assert.deepEqual(r.hardRuleCandidates.map((c) => c.source), ['CONTRIBUTING.md:2', 'CONTRIBUTING.md:3', 'CONTRIBUTING.md:4']);
+  // Line 3 is cut at the sentence that carries the rule, with no ellipsis.
+  assert.ok(r.hardRuleCandidates[1].text.startsWith('word word'));
+  assert.ok(r.hardRuleCandidates[1].text.endsWith('under the limit.'));
+  // Line 4 has no sentence end within the limit, so it is cut at a word with an ellipsis.
+  assert.ok(r.hardRuleCandidates[2].text.endsWith('…'));
+  for (const c of r.hardRuleCandidates) assert.ok(c.text.length <= 240, String(c.text.length));
+});
+
+test('hard rules are capped at 25', () => {
+  const dir = makeTmp();
+  write(dir, 'CONTRIBUTING.md', Array.from({ length: 40 }, (_, i) => `Never do thing number ${i}.`).join('\n'));
+  write(dir, 'docs/adr/a.md', Array.from({ length: 40 }, (_, i) => `Never do adr thing ${i}.`).join('\n'));
+  write(dir, 'AGENTS.md', Array.from({ length: 40 }, (_, i) => `Never do agent thing ${i}.`).join('\n'));
+  assert.equal(detect(dir).hardRuleCandidates.length, 25);
+});
+
+test('packageManagerVersion comes from the packageManager field, hash stripped', () => {
+  const dir = makeTmp();
+  write(dir, 'package.json', JSON.stringify({ name: 'p', packageManager: 'pnpm@10.8.0+sha512.abcdef' }));
+  const r = detect(dir);
+  assert.equal(r.packageManager, 'pnpm');
+  assert.equal(r.packageManagerVersion, '10.8.0');
+  assert.equal(detect(fixture('node-single-npm')).packageManagerVersion, null);
+});
+
+test('default setup command per package manager when none is declared', () => {
+  const cases = [
+    [{ 'package.json': '{"name":"p","packageManager":"pnpm@9.0.0"}' }, 'pnpm install', 'implied:package.json'],
+    [{ 'package.json': '{"name":"p"}', 'package-lock.json': '{}' }, 'npm ci', 'implied:package-lock.json'],
+    [{ 'package.json': '{"name":"p"}', 'yarn.lock': '' }, 'yarn install', 'implied:yarn.lock'],
+    [{ 'package.json': '{"name":"p"}', 'bun.lock': '{}' }, 'bun install', 'implied:bun.lock'],
+    [{ 'pyproject.toml': '[project]\nname = "p"\n[tool.uv]\n' }, 'uv sync', 'implied:pyproject.toml'],
+    [{ 'pyproject.toml': '[tool.poetry]\nname = "p"\n', 'poetry.lock': '' }, 'poetry install', 'implied:poetry.lock'],
+    [{ Gemfile: 'source "https://rubygems.org"\n' }, 'bundle install', 'implied:Gemfile'],
+    [{ 'composer.json': '{"name":"a/b"}', 'composer.lock': '{}' }, 'composer install', 'implied:composer.lock'],
+    [{ 'go.mod': 'module x\n\ngo 1.22\n', 'go.sum': '' }, 'go mod download', 'implied:go.sum'],
+  ];
+  for (const [files, cmd, source] of cases) {
+    const dir = makeTmp();
+    for (const [rel, content] of Object.entries(files)) write(dir, rel, content);
+    const r = detect(dir);
+    assert.deepEqual(r.commands.setup[0], { cmd, source }, cmd);
+  }
+});
+
+test('npm without a lockfile uses npm install only when packageManager is known', () => {
+  const dir = makeTmp();
+  write(dir, 'package.json', '{"name":"p","packageManager":"npm@10.0.0"}');
+  assert.deepEqual(detect(dir).commands.setup[0], { cmd: 'npm install', source: 'implied:package.json' });
+  const unknown = makeTmp();
+  write(unknown, 'package.json', '{"name":"p"}');
+  assert.deepEqual(detect(unknown).commands.setup, []); // pm unknown, so nothing is invented
+});
+
+test('a locally declared setup script suppresses the implied default; CI install folds in', () => {
+  const dir = makeTmp();
+  write(dir, 'package.json', JSON.stringify({ name: 'p', scripts: { bootstrap: 'node setup.js' } }));
+  write(dir, 'package-lock.json', '{}');
+  write(dir, '.github/workflows/ci.yml', 'jobs:\n  j:\n    steps:\n      - run: npm ci\n');
+  const r = detect(dir);
+  assert.deepEqual(cmds(r, 'setup'), ['npm run bootstrap', 'npm ci']);
+
+  const plain = makeTmp();
+  write(plain, 'package.json', '{"name":"p"}');
+  write(plain, 'package-lock.json', '{}');
+  write(plain, '.github/workflows/ci.yml', 'jobs:\n  j:\n    steps:\n      - run: npm ci\n');
+  const p = detect(plain);
+  assert.equal(p.commands.setup.length, 1);
+  assert.equal(p.commands.setup[0].source, 'implied:package-lock.json');
+  assert.deepEqual(p.commands.setup[0].alsoIn, ['.github/workflows/ci.yml']);
+});
+
+test('frameworks[].group: node fields', () => {
+  const dir = makeTmp();
+  write(dir, 'package.json', JSON.stringify({
+    name: 'p',
+    dependencies: { express: '^4.0.0' },
+    devDependencies: { vitest: '^2.0.0' },
+    peerDependencies: { react: '^18.0.0' },
+    optionalDependencies: { hono: '^4.0.0' },
+  }));
+  const r = detect(dir);
+  assert.deepEqual(
+    Object.fromEntries(r.frameworks.map((f) => [f.name, f.group])),
+    { express: 'runtime', vitest: 'dev', react: 'peer', hono: 'optional' },
+  );
+});
+
+test('frameworks[].group: python runtime, optional, dev and test groups', () => {
+  const dir = makeTmp();
+  write(dir, 'pyproject.toml', [
+    '[project]',
+    'name = "app"',
+    'dependencies = ["pydantic>=2"]',
+    '',
+    '[project.optional-dependencies]',
+    'web = ["fastapi>=0.1"]',
+    '',
+    '[dependency-groups]',
+    'tests = ["pytest>=8", "flask>=3"]',
+    'lint = ["ruff>=0.6"]',
+    'dev = ["mypy>=1"]',
+    '',
+  ].join('\n'));
+  const r = detect(dir);
+  assert.deepEqual(
+    Object.fromEntries(r.frameworks.map((f) => [f.name, f.group])),
+    { fastapi: 'optional', flask: 'test', mypy: 'dev', pydantic: 'runtime', pytest: 'test', ruff: 'dev' },
+  );
+});
+
+test('frameworks[].group: poetry groups and a runtime mention beats a test mention', () => {
+  const dir = makeTmp();
+  write(dir, 'pyproject.toml', [
+    '[tool.poetry]',
+    'name = "app"',
+    '',
+    '[tool.poetry.dependencies]',
+    'python = "^3.11"',
+    'django = "^5.0"',
+    '',
+    '[tool.poetry.group.test.dependencies]',
+    'pytest = "^8"',
+    'django = "^5.0"',
+    '',
+    '[tool.poetry.group.dev.dependencies]',
+    'ruff = "^0.6"',
+    '',
+  ].join('\n'));
+  const r = detect(dir);
+  assert.deepEqual(
+    Object.fromEntries(r.frameworks.map((f) => [f.name, f.group])),
+    { django: 'runtime', pytest: 'test', ruff: 'dev' },
+  );
+});
+
+test('frameworks[].group: rust and php', () => {
+  const rust = makeTmp();
+  write(rust, 'Cargo.toml', [
+    '[package]', 'name = "app"', 'version = "0.1.0"', '',
+    '[dependencies]', 'axum = "0.7"', '',
+    '[dev-dependencies]', 'tokio = "1"', '',
+    '[build-dependencies]', 'serde = "1"', '',
+  ].join('\n'));
+  assert.deepEqual(
+    Object.fromEntries(detect(rust).frameworks.map((f) => [f.name, f.group])),
+    { axum: 'runtime', tokio: 'dev', serde: 'dev' },
+  );
+
+  const php = makeTmp();
+  write(php, 'composer.json', JSON.stringify({ name: 'a/b', 'require-dev': { 'laravel/framework': '^11.0' } }));
+  assert.equal(detect(php).frameworks[0].group, 'dev');
 });
