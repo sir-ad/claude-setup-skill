@@ -28,7 +28,7 @@ Sources: https://code.claude.com/docs/en/best-practices , https://code.claude.co
 - Secrets, tokens, `.env` values, private URLs. Name a variable (`DATABASE_URL`), never give its value.
 - Persona text ("you are a senior engineer") and shouting. Use IMPORTANT sparingly.
 - Version notes for a version the project does not use.
-- Reviewer checklists with generic items. Every line must tie to a repo fact: a config, a documented rule, or a detected version. Exempt paths that break a rule on purpose and say why.
+- Reviewer checklists with generic items. Every line must tie to a repo fact: a config, a documented rule, or a detected version. Grep the repo before banning a pattern: if the repo uses it on purpose (a compat layer importing an old API), drop the line or scope it with the reason. Exempt paths that break a rule on purpose and say why. Four to eight strong lines beat ten weak ones.
 - Identifiers in backticks that do not exist in the repo. Grep before you write them.
 
 ## Skeleton

@@ -34,6 +34,7 @@ If the output above contains `CONTEXT_ERROR` or has no `## Detection` section, f
 - `agentConfigs[]`: `{path, tool}` for every existing agent file (`claude`, `cursor`, `copilot`, `agents`, ...).
 - `hardRuleCandidates[]`: `{text, source}` where source is `file:line`. These are candidates, not rules.
 - `env.files` (example env files), `env.gitignored` (ignore entries already present).
+- `generated[]`: `{path, evidence}` for files with "DO NOT EDIT" or "@generated" headers, or written by a script. These feed Boundaries.
 
 ### Decide
 
@@ -55,6 +56,10 @@ The template, knowledge notes and reference files are already in the injected co
 
 Knowledge entries are version-gated. The project's declared version always wins. Write a version note only when the declared version is inside the entry's gate. If the declared version is a range, use its lower bound. If there is no version at all, skip version notes for that package. Gate package-manager notes (pnpm, yarn, npm) on `packageManagerVersion`. Notes for `dev`, `test`, `optional` or `peer` dependencies are lower priority than `runtime` ones. A `test`-group package (Vitest, Jest, Playwright) is never described as the project's framework. Never write a note for a version the project does not use.
 
+### Investigate before writing
+
+The detector's commands are candidates. Before writing Commands, open the scripts they point at (`scripts/*.sh`, Makefile targets, the main CI workflow) and prefer the repo's own invocations over `implied:` entries (for example `scripts/lint.sh` runs `mypy fastapi`, not the generic `mypy .`; CI installs with extra flags). Before writing Boundaries, use `generated[]` and look for generated docs or code (a README built from a docs page, codegen output). Each generated file goes under "never edit by hand" with the command that regenerates it.
+
 ### If the context is missing
 
 The injection failed, or Node is missing. Then:
@@ -71,7 +76,7 @@ Print this before writing anything:
 ```
 Detected: <stack> (<layout>), <pm>, <primary framework + version>
 Agents:   <claude, codex, ...>   (source: --agents | existing configs | default)
-Commands: setup=<cmd> build=<cmd> test=<cmd> lint=<cmd>   (each from detector)
+Commands: setup=<cmd> build=<cmd> test=<cmd> lint=<cmd>   (repo script or CI step first, detector second)
 
 Will write:
   AGENTS.md                              (NEW | MERGE | KEEP)
@@ -84,13 +89,14 @@ Will write:
   adapters: .gemini/settings.json, .aider.conf.yml, rule mirrors (cursor, copilot, ...)
   .gitignore                             (append: CLAUDE.local.md, .claude/settings.local.json)
 
-Permissions: allow <patterns>; deny <patterns>; ask <patterns>   (exactly what will be written)
-Version notes (<n>): <package@version -> short title>, ...
+Version notes (<n>, exactly these will be written): <package@version -> short title>, ...
 Hard rules kept (<n>):
   - "<quote>" (README.md:5) -> AGENTS.md
 Hazards: <e.g. .cursorrules shadows AGENTS.md in Zed>
 Existing files: <path: keep | merge | replace>
 Skipped: <what and why>
+
+Then the full .claude/settings.json (the merged result if the file exists), verbatim, in a json block.
 
 Optional: add a PostToolUse formatter hook running <formatter> on each edited file?
   It runs a command on every edit, so treat it as code. [y/N]
@@ -104,15 +110,15 @@ Flags:
 - `--skip-skills`: omit `.claude/skills/`.
 - Offer the formatter hook only if the detector found a formatter (`commands.format` or a formatter in `frameworks`) and a single-file command exists in the template. Default is no.
 
-The plan is a contract: Phase 4 writes exactly what it lists. Wait for the answer. If a file exists, never replace it without a per-file yes.
+The plan is a contract: Phase 4 writes exactly what it lists, and the settings JSON verbatim. If anything changes after confirmation, show the new JSON or list and get a new yes. Wait for the answer. If a file exists, never replace it without a per-file yes.
 
 ---
 
 ## Phase 4: Generate
 
-Write in this order, exactly what the confirmed plan lists: no extra files, no extra permission entries, none dropped. Exact formats are in the Claude Code reference (in the injected context).
+Write in this order, exactly what the confirmed plan lists: no extra files, no extra permission entries, no extra version notes, none dropped. Exact formats are in the Claude Code reference (in the injected context).
 
-If a write is refused (Claude Code can protect `.claude/` paths in some permission modes), do not skip it silently and do not work around it. Print the full intended content of that file in the final report and tell the user to create it, or to rerun interactively.
+If a write is refused (Claude Code can protect `.claude/` paths in some permission modes), do not skip it silently and do not work around it. Print the full intended content of that file (for settings.json, the same JSON as in the plan) in the final report and tell the user to create it, or to rerun interactively.
 
 ### AGENTS.md (target 150 lines or fewer)
 
@@ -123,7 +129,7 @@ Sections, each only if it has real content:
 4. `## Conventions`: only what differs from language defaults or is documented in the repo.
 5. `## Hard rules`: quoted in full, each with its source, e.g. `- "Packages must not import from apps." (README.md:5)`.
 6. `## Version notes`: at most 10 one-line bullets from knowledge notes, for versions the project declares. Runtime frameworks first.
-7. `## Boundaries`: never touch (generated code, lockfiles by hand, applied migrations, secrets) and ask first (new dependencies, schema changes).
+7. `## Boundaries`: never touch (generated files with their regenerate command, lockfiles by hand, applied migrations, secrets) and ask first (new dependencies, schema changes). Boundaries must agree with settings.json: anything in `deny` is "never", not "ask first". The Version notes section holds exactly the notes listed in the confirmed plan.
 
 In a monorepo, add a nested AGENTS.md in a workspace only when it has its own commands or rules. Include it in the plan.
 
@@ -134,18 +140,18 @@ First line `@AGENTS.md`. Then only Claude-specific lines, usually none. Reason: 
 ### .claude/settings.json
 
 Start from `"$schema": "https://json.schemastore.org/claude-code-settings.json"`. Merge into an existing file; keep every existing key.
-- `permissions.allow`: space-glob form scoped to this stack, built from the detected commands, e.g. `Bash(pnpm run *)`, plus read-only git (`Bash(git diff *)`, `Bash(git status *)`, `Bash(git log *)`). No `Bash(*)`.
+- `permissions.allow`: space-glob form, as narrow as the commands you list in AGENTS.md (`Bash(pnpm turbo run *)`, not `Bash(pnpm turbo *)`). Git is read-only only: `Bash(git diff *)`, `Bash(git status *)`, `Bash(git log *)`, `Bash(git show *)`. Add `git add` or `git commit` only if the user asks. No unplanned entries. No `Bash(*)`.
 - `permissions.deny`: `Bash(rm -rf *)`, `Bash(git push --force *)`, `Bash(git reset --hard *)`, stack publish commands, and secrets: `Read(./.env)`, `Read(./.env.*)`, `Read(./**/*.pem)`, `Read(./secrets/**)`. A Read deny also blocks Edit. If `env.files` lists an example file the agent should read, deny explicit names instead of `.env.*`.
 - Never set `defaultMode` to `auto` or `bypassPermissions`. Never put secrets, tokens, personal paths, or `env` values here.
 - Hook: only if the user said yes in the plan. Format and script are in the reference.
 
 ### .claude/rules/<name>.md
 
-Frontmatter `paths:` (YAML list of globs), then 3 to 10 lines. Only for directories with real, distinct conventions. Never restate AGENTS.md. Zero rules is a valid result. Every identifier in backticks (function, flag, path, config key) must exist in the repo: grep for it before writing.
+Frontmatter `paths:` (YAML list of globs), then 3 to 10 lines. Only for directories with real, distinct conventions. Never restate AGENTS.md. Zero rules is a valid result. Every identifier in backticks (function, flag, path, config key) must exist in the repo: grep for it before writing. A rule that bans or requires a pattern needs the same grep check as a reviewer line (below).
 
 ### .claude/agents/<lang>-reviewer.md
 
-Frontmatter `name`, `description`, `tools: Read, Grep, Glob`. The description names the checks ("Reviews TypeScript changes for strictness, RSC boundaries and PII in logs. Use proactively after code changes."). Body is a checklist where every line ties to a repo fact: a config file, a documented rule, a hard rule, or a detected framework version. Drop template items you cannot tie. If a directory deliberately breaks a rule (for example a legacy module pinned to an older library API), exempt that path in the checklist and say why. Never flag what the repo does on purpose.
+Frontmatter `name`, `description`, `tools: Read, Grep, Glob`. The description names the checks ("Reviews TypeScript changes for strictness, RSC boundaries and PII in logs. Use proactively after code changes."). Template checklists are candidates, not defaults. Keep a line only with a citation to a repo fact: a config file (lint, tsconfig, pyproject), a documented rule, a hard rule, or a detected version. Before writing any line that bans or requires a pattern, grep the repo for it. If the "banned" pattern is used in the repo, drop the line or scope it with the exception and the reason (for example, a compat layer that imports an old API on purpose). Prefer 4 to 8 strong lines over 10 weak ones. Never flag what the repo does on purpose.
 
 ### .claude/skills/<name>/SKILL.md
 
