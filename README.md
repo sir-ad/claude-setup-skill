@@ -145,7 +145,7 @@ Details and hazards (for example, legacy `.cursorrules` shadowing `AGENTS.md` in
 
 ## Headless / CI use
 
-`claude -p "/claude-setup --dry-run"` works and prints the plan. For a run that writes files, use interactive mode: in some permission modes Claude Code refuses writes under `.claude/`. When that happens the skill prints the full file content in its report instead of skipping it, and you create the file yourself. If the context injection is unavailable (the skill directory is outside the allowed paths), pass `--add-dir ~/.claude/skills/claude-setup`.
+`claude -p "/claude-setup --dry-run"` works and prints the plan. For a run that writes files, use interactive mode: in some permission modes Claude Code refuses writes under `.claude/`. When that happens the skill prints the full file content in its report instead of skipping it, and you create the file yourself. Under `--permission-mode acceptEdits` Claude Code refuses writes to `.claude/settings.json` and `.claude/rules/`, so expect those in the report as content to create by hand, or run interactively. If the context injection is unavailable (the skill directory is outside the allowed paths), pass `--add-dir ~/.claude/skills/claude-setup`.
 
 ## Updating
 
