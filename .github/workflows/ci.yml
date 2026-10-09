@@ -14,7 +14,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20, 22]
+        # Node 18 is end-of-life, but it stays here because package.json
+        # engines says >=18. Testing the floor catches accidental newer syntax.
+        node: [18, 22, 24]
     steps:
       - uses: actions/checkout@v4
 

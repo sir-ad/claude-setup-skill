@@ -21,6 +21,11 @@ const MAX_LINES = 300;
 const PLACEHOLDER = /\b(todo|tbd|fixme)\b|<fill|lorem ipsum/i;
 const NEGATION = /\b(no|not|never|don't|do not)\b/i;
 
+// Directories whose markdown files get the heading and placeholder checks.
+const MARKDOWN_DIRS = ['templates', 'knowledge', 'reference'];
+// Runtime directories. They are required only once they exist on disk.
+const OPTIONAL_RUNTIME_DIRS = ['knowledge', 'reference', 'scripts'];
+
 const failures = [];
 const warnings = [];
 
@@ -65,12 +70,55 @@ function parseFrontmatter(text) {
   return fields;
 }
 
-function checkSkill() {
+// Reads package.json "files" and the installer's ITEMS. Returns null (and
+// records a failure) when either cannot be read.
+function loadPackaging() {
+  let pkg;
+  try {
+    pkg = JSON.parse(read('package.json'));
+  } catch (err) {
+    fail(`package.json does not parse: ${err.message}`);
+    return null;
+  }
+  if (!exists('bin/install.js')) {
+    fail('bin/install.js is missing');
+    return null;
+  }
+  const m = /const\s+ITEMS\s*=\s*\[([\s\S]*?)\]/.exec(read('bin/install.js'));
+  if (!m) {
+    fail('bin/install.js: could not find the ITEMS array');
+    return null;
+  }
+  const items = [...m[1].matchAll(/['"]([^'"]+)['"]/g)].map((x) => x[1]);
+  return { files: Array.isArray(pkg.files) ? pkg.files : [], items };
+}
+
+// A top-level item ships when it is in both package.json "files" and the
+// installer's ITEMS.
+function ships(shipped, item) {
+  return shipped.files.includes(item) && shipped.items.includes(item);
+}
+
+// Pulls names out of a sentence such as "The list: a, b and c." and maps
+// each one to a file under dir. Returns null when the sentence is missing.
+function namedFiles(skillText, sentence, dir) {
+  const m = new RegExp(`${sentence} (.+?)\\.(?=\\s|$)`, 'm').exec(skillText);
+  if (!m) return null;
+  return m[1]
+    .split(/,\s*|\s+and\s+/)
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name) => `${dir}/${name.endsWith('.md') ? name : `${name}.md`}`);
+}
+
+function checkSkill(shipped) {
   if (!exists('SKILL.md')) {
     fail('SKILL.md is missing');
     return;
   }
-  const fields = parseFrontmatter(read('SKILL.md'));
+  const text = read('SKILL.md');
+
+  const fields = parseFrontmatter(text);
   if (!fields) {
     fail('SKILL.md has no YAML frontmatter (file must open with a --- block)');
   } else {
@@ -79,25 +127,51 @@ function checkSkill() {
     }
   }
 
-  // Paths like ${CLAUDE_SKILL_DIR}/templates/go.md must exist. Paths with
-  // placeholder or glob characters (<name>, {x}, *) are documentation, so skip.
+  // Every ${CLAUDE_SKILL_DIR}/<path> must exist, and its top-level directory
+  // (or file) must ship. Paths with placeholder or glob characters (<name>,
+  // {x}, *) are documentation, so skip them.
   const refs = new Set();
-  for (const m of read('SKILL.md').matchAll(/\$\{CLAUDE_SKILL_DIR\}\/([^\s`'"()]+)/g)) {
+  for (const m of text.matchAll(/\$\{CLAUDE_SKILL_DIR\}\/([^\s`'"()]+)/g)) {
     refs.add(m[1].replace(/[.,;:]+$/, ''));
   }
+  const unshipped = new Set();
   for (const ref of refs) {
     if (/[<>{}*]/.test(ref)) continue;
-    if (!exists(ref)) fail(`SKILL.md references \${CLAUDE_SKILL_DIR}/${ref}, which does not exist`);
+    if (!exists(ref)) {
+      fail(`SKILL.md references \${CLAUDE_SKILL_DIR}/${ref}, which does not exist`);
+      continue;
+    }
+    const top = ref.split('/')[0];
+    if (shipped && !ships(shipped, top)) unshipped.add(top);
+  }
+  for (const top of unshipped) {
+    fail(`SKILL.md uses "${top}" but it is not in package.json "files" and bin/install.js ITEMS`);
+  }
+
+  // Lists of files named in SKILL.md: each must exist.
+  const lists = [
+    { label: 'template list', sentence: 'The list:', dir: 'templates' },
+    { label: 'knowledge list', sentence: 'The files are', dir: 'knowledge' },
+  ];
+  for (const { label, sentence, dir } of lists) {
+    const named = namedFiles(text, sentence, dir);
+    if (!named) {
+      fail(`SKILL.md: could not find the ${label} ("${sentence} ...")`);
+      continue;
+    }
+    for (const file of named) {
+      if (!exists(file)) fail(`SKILL.md ${label} names ${file}, which does not exist`);
+    }
   }
 }
 
-function listMarkdown(dirRel, recursive) {
+function listMarkdown(dirRel) {
   if (!exists(dirRel)) return [];
   const out = [];
   const walk = (rel) => {
     for (const entry of fs.readdirSync(abs(rel), { withFileTypes: true })) {
       const child = path.posix.join(rel, entry.name);
-      if (entry.isDirectory() && recursive) walk(child);
+      if (entry.isDirectory()) walk(child);
       else if (entry.isFile() && entry.name.endsWith('.md')) out.push(child);
     }
   };
@@ -125,64 +199,28 @@ function checkMarkdown(file) {
   }
 }
 
-// Top-level items the installed skill needs at runtime. knowledge/ and
-// scripts/ are only required once they exist on disk.
-function runtimeItems() {
-  const items = ['SKILL.md', 'templates'];
-  for (const dir of ['knowledge', 'scripts']) {
-    if (exists(dir)) items.push(dir);
+function checkRuntimeDirs(shipped) {
+  const required = ['SKILL.md', 'templates'];
+  for (const dir of OPTIONAL_RUNTIME_DIRS) {
+    if (exists(dir)) required.push(dir);
   }
-  return items;
-}
-
-// Reads the ITEMS array from bin/install.js with a regex (no import, so the
-// installer stays free of side effects when this runs).
-function parseInstallItems(src) {
-  const m = /const\s+ITEMS\s*=\s*\[([\s\S]*?)\]/.exec(src);
-  if (!m) return null;
-  return [...m[1].matchAll(/['"]([^'"]+)['"]/g)].map((x) => x[1]);
-}
-
-function checkPackaging() {
-  let pkg;
-  try {
-    pkg = JSON.parse(read('package.json'));
-  } catch (err) {
-    fail(`package.json does not parse: ${err.message}`);
-    return;
+  for (const item of required) {
+    if (!shipped) continue;
+    if (!shipped.files.includes(item)) fail(`"${item}" is missing from package.json "files"`);
+    if (!shipped.items.includes(item)) fail(`"${item}" is missing from bin/install.js ITEMS`);
   }
-
-  const files = Array.isArray(pkg.files) ? pkg.files : [];
-  for (const entry of files) {
-    if (!exists(entry)) fail(`package.json "files" lists "${entry}", which does not exist`);
-  }
-
-  if (!exists('bin/install.js')) {
-    fail('bin/install.js is missing');
-    return;
-  }
-  const items = parseInstallItems(read('bin/install.js'));
-  if (!items) {
-    fail('bin/install.js: could not find the ITEMS array');
-    return;
-  }
-  for (const item of items) {
-    if (!exists(item)) fail(`bin/install.js ITEMS lists "${item}", which does not exist`);
-  }
-
-  for (const item of runtimeItems()) {
-    if (!files.includes(item)) fail(`"${item}" is missing from package.json "files"`);
-    if (!items.includes(item)) fail(`"${item}" is missing from bin/install.js ITEMS`);
+  if (!shipped) return;
+  for (const item of new Set([...shipped.files, ...shipped.items])) {
+    if (!exists(item)) fail(`"${item}" is listed for shipping but does not exist`);
   }
 }
 
-checkSkill();
-
-for (const file of [...listMarkdown('templates', false), ...listMarkdown('knowledge', true)]) {
-  checkMarkdown(file);
+const shipped = loadPackaging();
+checkSkill(shipped);
+for (const dir of MARKDOWN_DIRS) {
+  for (const file of listMarkdown(dir)) checkMarkdown(file);
 }
-
-checkPackaging();
+checkRuntimeDirs(shipped);
 
 for (const w of warnings) console.log(`WARN  ${w}`);
 for (const f of failures) console.log(`FAIL  ${f}`);
