@@ -5,9 +5,16 @@
   "bin": {
     "claude-setup-install": "./bin/install.js"
   },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "validate": "node scripts/validate.mjs",
+    "check": "npm run validate && npm test"
+  },
   "files": [
     "SKILL.md",
     "templates",
+    "knowledge",
+    "scripts",
     "examples",
     "assets",
     "bin",

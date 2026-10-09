@@ -1,34 +1,56 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Install or update the /claude-setup skill by symlinking this repo into ~/.claude/skills/.
 #
 # Usage:
-#   ./install.sh            install (or update) the symlink
-#   ./install.sh --force    overwrite an existing non-symlink target
-#   ./install.sh --uninstall remove the symlink
-set -euo pipefail
+#   ./install.sh              install (or update) the symlink
+#   ./install.sh --force      overwrite an existing non-symlink target
+#   ./install.sh --uninstall  remove the symlink
+#   ./install.sh --help       show usage
+#
+# Written for POSIX sh. Do not add bashisms ([[ ]], arrays, BASH_SOURCE).
+set -eu
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$HOME/.claude/skills"
 TARGET="$SKILLS_DIR/claude-setup"
 
 usage() {
     cat <<EOF
-Usage: ./install.sh [--force | --uninstall]
+Usage: ./install.sh [--force | --uninstall | --help]
 
   (no flag)     create or refresh symlink: $TARGET -> $REPO_ROOT
   --force       replace an existing dir/file at the target
   --uninstall   remove the symlink (does not touch this repo)
+  -h, --help    show this message
 EOF
 }
 
-case "${1:-}" in
-    -h|--help) usage; exit 0 ;;
-esac
+MODE=install
+FORCE=0
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --uninstall)
+            MODE=uninstall
+            ;;
+        --force)
+            FORCE=1
+            ;;
+        *)
+            echo "error: unknown option: $arg" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
 
 mkdir -p "$SKILLS_DIR"
 
-if [[ "${1:-}" == "--uninstall" ]]; then
-    if [[ -L "$TARGET" ]]; then
+if [ "$MODE" = uninstall ]; then
+    if [ -L "$TARGET" ]; then
         rm "$TARGET"
         echo "removed: $TARGET"
     else
@@ -38,8 +60,8 @@ if [[ "${1:-}" == "--uninstall" ]]; then
 fi
 
 # Refuse to clobber a real directory unless --force.
-if [[ -e "$TARGET" && ! -L "$TARGET" ]]; then
-    if [[ "${1:-}" != "--force" ]]; then
+if [ -e "$TARGET" ] && [ ! -L "$TARGET" ]; then
+    if [ "$FORCE" -ne 1 ]; then
         echo "error: $TARGET exists and is not a symlink. Use --force to replace." >&2
         exit 1
     fi
@@ -48,7 +70,7 @@ if [[ -e "$TARGET" && ! -L "$TARGET" ]]; then
 fi
 
 # Refresh symlink.
-if [[ -L "$TARGET" ]]; then
+if [ -L "$TARGET" ]; then
     rm "$TARGET"
 fi
 
