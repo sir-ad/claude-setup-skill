@@ -164,3 +164,10 @@ test('CLI defaults to the current directory and exits 0 for a missing directory'
   assert.equal(missing.status, 0);
   assert.ok(missing.stdout.includes('## Detection'));
 });
+
+test('the detection block carries the generated field', () => {
+  const out = buildContext(fixture('generated-readme'));
+  const start = out.indexOf('```json\n') + '```json\n'.length;
+  const parsed = JSON.parse(out.slice(start, out.indexOf('\n```\n', start)));
+  assert.deepEqual(parsed.generated, [{ path: 'README.md', evidence: 'written by scripts/docs.py (generate-readme)' }]);
+});

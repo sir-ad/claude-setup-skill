@@ -1,0 +1,18 @@
+repos:
+  - repo: local
+    hooks:
+      - id: generate-readme
+        language: unsupported
+        name: generate README.md from index.md
+        entry: uv run ./scripts/docs.py generate-readme
+        pass_filenames: false
+      - id: render-banner
+        language: unsupported
+        name: render sponsor banner partial
+        entry: uv run ./scripts/docs.py render-banner
+        pass_filenames: false
+      - id: generate-changelog
+        language: unsupported
+        name: generate CHANGELOG.md from commits
+        entry: uv run ./scripts/other.py generate-changelog
+        pass_filenames: false

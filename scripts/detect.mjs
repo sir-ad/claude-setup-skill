@@ -1855,6 +1855,204 @@ function detectVersionFiles(ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// Generated files: do not edit by hand
+// ---------------------------------------------------------------------------
+
+const GENERATED_EXTENSIONS = new Set([
+  '.go', '.rs', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.py', '.java', '.kt', '.cs',
+  '.rb', '.php', '.swift', '.dart', '.c', '.h', '.cc', '.cpp', '.hpp', '.proto', '.sql', '.graphql', '.gql',
+  '.md', '.mdx', '.json', '.yml', '.yaml', '.toml', '.html', '.css', '.scss',
+]);
+const MAX_HEADER_BYTES = 2048;
+const MAX_HEADER_FILE_BYTES = 256 * 1024;
+const MAX_HEADER_FILES = 3000;
+const MAX_GENERATED = 30;
+
+// "DO NOT EDIT" and "Code generated" are conventions with fixed capitalisation (Go's is exact).
+const GENERATED_MARKER = /DO NOT EDIT|Code generated/;
+const GENERATED_MARKER_LOOSE = /@generated|auto-?generated|This file is (?:automatically )?generated/i;
+// The marker must sit in a comment line (or be an @generated tag), not in prose.
+const COMMENT_LINE = /^(?:\/\/|\/\*|\*|#|<!--|--|;|%)/;
+
+function firstLines(ctx, rel, count) {
+  let fd;
+  try {
+    const abs = path.join(ctx.root, rel);
+    if (fs.statSync(abs).size > MAX_HEADER_FILE_BYTES) return [];
+    fd = fs.openSync(abs, 'r');
+    const buffer = Buffer.alloc(MAX_HEADER_BYTES);
+    const read = fs.readSync(fd, buffer, 0, MAX_HEADER_BYTES, 0);
+    return buffer.toString('utf8', 0, read).split(/\r?\n/).slice(0, count);
+  } catch {
+    return [];
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+function generatedByHeader(ctx) {
+  const out = [];
+  let checked = 0;
+  for (const rel of ctx.files) {
+    if (baseName(rel).startsWith('.env')) continue;
+    if (!GENERATED_EXTENSIONS.has(path.extname(rel).toLowerCase())) continue;
+    if (++checked > MAX_HEADER_FILES) break;
+    for (const line of firstLines(ctx, rel, 5)) {
+      const text = line.trim();
+      const tagged = /@generated/i.test(text);
+      if (!tagged && !COMMENT_LINE.test(text)) continue;
+      if (tagged || GENERATED_MARKER.test(text) || GENERATED_MARKER_LOOSE.test(text)) {
+        out.push({ path: rel, evidence: `header says: ${text.slice(0, 100)}` });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+// Units of "name + command text" from config files that run scripts.
+function preCommitHooks(text) {
+  const hooks = [];
+  let hook = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = stripHashComment(raw, true);
+    const id = line.match(/^\s*-\s+id:\s*(\S+)/);
+    if (id) {
+      hook = { name: id[1], text: id[1], commands: [] };
+      hooks.push(hook);
+      continue;
+    }
+    const field = hook && line.match(/^\s+(name|entry):\s*(.+)$/);
+    if (!field) continue;
+    hook.text += ` ${unquote(field[2])}`;
+    if (field[1] === 'entry') hook.commands.push(unquote(field[2]));
+  }
+  return hooks.map((h) => ({ file: '.pre-commit-config.yaml', task: h.name, label: h.text, commands: h.commands }));
+}
+
+function makefileUnits(text, file) {
+  const units = [];
+  let unit = null;
+  for (const line of text.split(/\r?\n/)) {
+    const target = line.match(/^([A-Za-z0-9_][\w.-]*)\s*:(?![=:])/);
+    if (target) {
+      unit = { file, task: target[1], label: target[1], commands: [] };
+      units.push(unit);
+    } else if (unit && /^\t/.test(line)) {
+      unit.commands.push(line.trim().replace(/^[@-]+/, ''));
+    } else if (line.trim() && !/^\s/.test(line)) {
+      unit = null;
+    }
+  }
+  return units;
+}
+
+function configUnits(ctx) {
+  const units = [];
+  if (isFile(ctx, '.pre-commit-config.yaml')) {
+    const text = readText(ctx, '.pre-commit-config.yaml');
+    if (text) units.push(...preCommitHooks(text));
+  }
+  const make = ['Makefile', 'makefile', 'GNUmakefile'].find((f) => isFile(ctx, f));
+  if (make) {
+    const text = readText(ctx, make);
+    if (text) units.push(...makefileUnits(text, make));
+  }
+  const pkg = isFile(ctx, 'package.json') ? readJson(ctx, 'package.json') : null;
+  if (pkg && isObject(pkg.scripts)) {
+    for (const [name, body] of Object.entries(pkg.scripts)) {
+      if (typeof body === 'string') units.push({ file: 'package.json', task: name, label: name, commands: [body] });
+    }
+  }
+  const poe = isFile(ctx, 'pyproject.toml') ? tomlTable(readToml(ctx, 'pyproject.toml'), 'tool.poe.tasks') : {};
+  for (const [name, value] of Object.entries(poe)) {
+    const cmd = typeof value === 'string' ? value : isObject(value) && typeof value.cmd === 'string' ? value.cmd : null;
+    if (cmd) units.push({ file: 'pyproject.toml', task: name, label: name, commands: [cmd] });
+  }
+  return units;
+}
+
+// An existing, non-ignored file named by a path-like token.
+function trackedFile(ctx, token, isIgnored) {
+  const rel = token.replace(/^["']|["']$/g, '').replace(/^\.\//, '');
+  if (!rel || rel.startsWith('/') || rel.includes('..') || !isFile(ctx, rel) || isIgnored(rel)) return null;
+  return rel;
+}
+
+// `uv run ./scripts/docs.py generate-readme` -> { script: "scripts/docs.py", task: "generate-readme" }
+function scriptInCommand(ctx, command) {
+  const tokens = command.split(/\s+/).filter(Boolean);
+  for (let i = 0; i < tokens.length; i++) {
+    if (!/\.(py|sh|bash|js|mjs|cjs|ts|rb)$/.test(tokens[i])) continue;
+    const script = trackedFile(ctx, tokens[i], () => false);
+    if (!script) continue;
+    const arg = tokens.slice(i + 1).find((t) => !t.startsWith('-'));
+    return { script, task: arg || null };
+  }
+  return null;
+}
+
+// "python generate.py" names generate.py as the generator, not as a generated file.
+const runsAsScript = (text, file) =>
+  new RegExp(`(?:python3?|node|bash|sh|ruby|tsx|ts-node|run|exec)\\s+(?:\\./)?${file.replace(/[.+^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`).test(text);
+
+const GENERATE_FILE = /\bgenerat\w*\s+(?:the\s+)?([\w./-]+\.\w{1,8})\b/i;
+const REDIRECT_FILE = /(?:^|[^>&\d])>\s*([\w./-]+\.\w{1,8})\s*$/;
+
+function generatedByScripts(ctx, isIgnored) {
+  const out = [];
+  for (const unit of configUnits(ctx)) {
+    // 1) "generate FILE": the hook, task or command says it generates a file that exists.
+    for (const text of [unit.label, ...unit.commands]) {
+      const m = GENERATE_FILE.exec(text);
+      const target = m && trackedFile(ctx, m[1], isIgnored);
+      if (!target || runsAsScript(text, target)) continue;
+      const via = unit.commands.map((c) => scriptInCommand(ctx, c)).find(Boolean);
+      if (via) {
+        // The script has to mention the file, otherwise the name alone proves nothing.
+        const body = readText(ctx, via.script) || '';
+        if (!body.includes(baseName(target))) continue;
+        out.push({ path: target, evidence: `written by ${via.script} (${via.task || unit.task})` });
+      } else {
+        out.push({ path: target, evidence: `written by ${unit.file} (${unit.task})` });
+      }
+      break;
+    }
+    // 2) `command > FILE` into a file that exists.
+    for (const command of unit.commands) {
+      const m = REDIRECT_FILE.exec(command);
+      const target = m && trackedFile(ctx, m[1], isIgnored);
+      if (target) out.push({ path: target, evidence: `written by ${unit.file} (${unit.task})` });
+    }
+  }
+  // Shell scripts that redirect into a tracked file.
+  for (const rel of ctx.files.filter((f) => /^scripts\/[^/]+\.(sh|bash)$/.test(f))) {
+    const text = readText(ctx, rel);
+    if (!text) continue;
+    for (const line of text.split(/\r?\n/)) {
+      const m = REDIRECT_FILE.exec(line.trim());
+      const target = m && trackedFile(ctx, m[1], isIgnored);
+      if (target && target !== rel) out.push({ path: target, evidence: `written by ${rel} (> ${target})` });
+    }
+  }
+  return out;
+}
+
+function detectGenerated(ctx) {
+  const isIgnored = loadGitignore(ctx);
+  const byPath = new Map();
+  for (const entry of [...generatedByHeader(ctx), ...generatedByScripts(ctx, isIgnored)]) {
+    const evidence = byPath.get(entry.path) || [];
+    if (!evidence.includes(entry.evidence)) evidence.push(entry.evidence);
+    byPath.set(entry.path, evidence);
+  }
+  return [...byPath.entries()]
+    .sort(([a], [b]) => sortStr(a, b))
+    .slice(0, MAX_GENERATED)
+    .map(([p, evidence]) => ({ path: p, evidence: evidence.slice(0, 3).join('; ') }));
+}
+
+// ---------------------------------------------------------------------------
 // Project name
 // ---------------------------------------------------------------------------
 
@@ -1935,6 +2133,7 @@ export function detect(dir = process.cwd()) {
     infra: safe(ctx, 'infra', () => detectInfra(ctx), {}),
     env: safe(ctx, 'env', () => detectEnv(ctx), { files: [], gitignored: [] }),
     versionFiles: safe(ctx, 'version file', () => detectVersionFiles(ctx), []),
+    generated: safe(ctx, 'generated file', () => detectGenerated(ctx), []),
     warnings: uniqSorted(ctx.warnings),
   };
 }
