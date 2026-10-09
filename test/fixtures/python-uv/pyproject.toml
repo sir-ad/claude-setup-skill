@@ -1,0 +1,23 @@
+[project]
+name = "svc"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",  # web framework
+  "pydantic>=2.9",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.poe.tasks]
+serve = "uvicorn svc.main:app --reload"

@@ -1,0 +1,6 @@
+{
+  "name": "@acme/ui",
+  "scripts": { "test": "vitest run" },
+  "peerDependencies": { "react": "^19.0.0" },
+  "devDependencies": { "vitest": "^2.1.0" }
+}
