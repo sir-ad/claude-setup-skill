@@ -83,13 +83,15 @@ Default: none. A single crate is covered by AGENTS.md. Generate one only when:
 Mirror rules with `node "${CLAUDE_SKILL_DIR}/scripts/sync-rules.mjs" --targets <tools>` if the user picked other agents.
 
 ## Reviewer subagent
+These are candidate checks, not defaults. Keep a line only when a repo fact backs it (lint or type config, a documented rule, a hard rule, a detected version), and grep the repo first: if the code already uses a pattern on purpose, drop the line or scope it with the exception.
+
 Generate only when the crate is more than a small tool. `.claude/agents/rust-reviewer.md`, frontmatter `name: rust-reviewer`, `description: Reviews Rust changes for panics, unsafe without justification, async mistakes and API breaks. Use after editing .rs files.`, `tools: Read, Grep, Glob`.
 1. No `unwrap()` or `expect()` in library code paths or request handlers. Tests and clearly infallible cases are fine with a message.
 2. Every `unsafe` block has a `// SAFETY:` comment stating the invariant.
 3. Async: no blocking calls on the runtime. No `std::sync::Mutex` guard held across `.await`.
 4. Errors keep their source. Libraries return typed errors, not `String`.
 5. Libraries: changed public signatures are flagged. Feature flags stay additive.
-6. Lossy `as` casts, needless `clone()` in loops, unseeded randomness where output must be reproducible.
+6. Lossy `as` casts, and unseeded randomness where output must be reproducible.
 7. Tests: no `#[ignore]` without a reason, new behavior has a test, doc examples compile.
 
 ## Skills

@@ -101,6 +101,8 @@ Only for directories with real conventions. Mirror rules with `node "${CLAUDE_SK
 - `routes/**`: only when routes are split by file with naming or middleware rules.
 
 ## Reviewer subagent
+These are candidate checks, not defaults. Keep a line only when a repo fact backs it (lint or type config, a documented rule, a hard rule, a detected version), and grep the repo first: if the code already uses a pattern on purpose, drop the line or scope it with the exception.
+
 `.claude/agents/php-reviewer.md`, frontmatter `name: php-reviewer`, `description: Reviews PHP changes for injection risks, mass assignment, N+1 queries, missing authorization and loose typing. Use after editing .php files.`, `tools: Read, Grep, Glob`.
 1. SQL built by concatenation or interpolation, including `DB::raw`, `whereRaw`, `orderByRaw` and Doctrine DQL strings. Use bindings.
 2. Mass assignment: `$guarded = []`, `Model::unguard()`, or `create($request->all())`. Use validated data.
@@ -109,7 +111,7 @@ Only for directories with real conventions. Mirror rules with `node "${CLAUDE_SK
 5. Authorization: new routes and actions have a policy, gate, voter or middleware check.
 6. Blade `{!! !!}` or raw output of user input. `unserialize` on external data. Shell calls built from input.
 7. `env()` called outside config files (Laravel); config cache then returns null.
-8. Typing: `declare(strict_types=1)` where the repo uses it, parameter and return types on new methods, `===` over `==`, no `@` error suppression.
+8. Typing: `declare(strict_types=1)` where the repo uses it, parameter and return types on new methods, `===` over `==` only when PHP-CS-Fixer or PHPStan enforces it. No `@` error suppression.
 9. Queued jobs hold ids or serializable data, are idempotent, and set tries or backoff when the repo does.
 10. Left-over `dd()`, `dump()`, `var_dump()`, `ray()`. Tests: new behavior has a test, no skipped tests without a reason.
 

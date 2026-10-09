@@ -81,16 +81,18 @@ Only where the project has conventions it documents. Python repos usually follow
 - `tests/**/*.py`: fixture and factory conventions, markers that gate slow tests.
 
 ## Reviewer subagent
+These are candidate checks, not defaults. Keep a line only when a repo fact backs it (lint or type config, a documented rule, a hard rule, a detected version), and grep the repo first: if the code already uses a pattern on purpose, drop the line or scope it with the exception.
+
 `.claude/agents/python-reviewer.md`, frontmatter `name: python-reviewer`, `description: Reviews Python changes for typing gaps, async mistakes, error handling and unsafe data access. Use after editing .py files.`, `tools: Read, Grep, Glob`.
 1. Public functions have parameter and return annotations when the project is typed. No new `Any` without a reason.
-2. No bare `except:` or `except Exception: pass`. Libraries raise specific exceptions.
+2. Bare `except:` and silent `except Exception: pass` are flagged only when the lint config enables a rule for them (ruff `E722` or `BLE001`).
 3. Async code: no blocking calls (`requests`, `time.sleep`, sync DB drivers) inside `async def`. No `asyncio.run()` inside a running loop.
-4. Mutable default arguments. Module-level state that makes tests order dependent.
+4. Mutable default arguments, when ruff's `B006` is enabled. Module-level state that makes tests order dependent.
 5. SQL built with f-strings or `%` formatting. Raw queries must be parameterized.
 6. `eval`, `exec`, `pickle.loads` or `yaml.load` (without a safe loader) on external input.
 7. Django: queryset loops that touch relations without `select_related` or `prefetch_related`; migrations edited after being applied; `DEBUG` or secret key read from source.
 8. FastAPI and Pydantic: handlers return validated models, not raw dicts from the DB; settings read from env, not constants.
-9. Tests: new behavior has a test, no `assert True` filler, fixtures preferred over setup code repeated per test.
+9. Tests: no `assert True` filler.
 
 ## Skills
 - `release`: when `versionFiles` has `pyproject.toml` with a version and a changelog. Bump version, update changelog, build, tag. Use `uv build` or `poetry build` to match the tool. Never include a publish step unless the repo already automates it.

@@ -79,15 +79,17 @@ Default is none for a plain backend or library. Keep conventions in AGENTS.md. M
 - `**/*.test.ts(x)` only when test conventions are non-obvious.
 
 ## Reviewer subagent
+These are candidate checks, not defaults. Keep a line only when a repo fact backs it (lint or type config, a documented rule, a hard rule, a detected version), and grep the repo first: if the code already uses a pattern on purpose, drop the line or scope it with the exception.
+
 `.claude/agents/ts-reviewer.md`, frontmatter `name: ts-reviewer`, `description: Reviews TypeScript and JavaScript changes for type safety, async mistakes and framework boundary errors. Use after editing source files.`, `tools: Read, Grep, Glob`.
-1. No `any`, `@ts-ignore` or unexplained `as` casts in changed lines.
-2. Promises are awaited or returned. No floating promises in request handlers. Independent calls use `Promise.all`.
-3. Input validation at every external boundary (request body, query, env). Trusting `req.body` types is a finding.
+1. If the lint config bans `any` or `@ts-ignore`, flag new uses in changed lines.
+2. If the lint config enables a floating-promise rule, flag violations it would catch.
+3. If the repo validates input with a schema library (zod, valibot and the like), flag request bodies or query params that skip it.
 4. Secrets and server-only values are not referenced from client-bundled code.
 5. For React code: hooks called conditionally, effects used to derive state, missing keys, state set during render.
 6. For app frameworks: code in the wrong side of the server/client split for the detected framework (check `knowledge/frontend.md` for the version's rules).
 7. SQL or ORM calls built from string concatenation with user input.
-8. Tests: no `.only`, no skipped tests without a reason, new behavior has a test.
+8. Tests: no `.only`. Skipped tests need a reason.
 
 ## Skills
 - `release`: when `versionFiles` has `package.json` with a version and a changelog, or `.changeset/`, or a release tool config. Use the repo's real release commands.

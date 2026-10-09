@@ -84,16 +84,17 @@ Most Go repos follow community defaults and need none. Mirror rules with `node "
 - `**/*_test.go` only when the repo has non-obvious test rules (golden files, integration build tags, a required test helper).
 
 ## Reviewer subagent
+These are candidate checks, not defaults. Keep a line only when a repo fact backs it (lint or type config, a documented rule, a hard rule, a detected version), and grep the repo first: if the code already uses a pattern on purpose, drop the line or scope it with the exception.
+
 `.claude/agents/go-reviewer.md`, frontmatter `name: go-reviewer`, `description: Reviews Go changes for ignored errors, goroutine leaks, data races and context misuse. Use after editing .go files.`, `tools: Read, Grep, Glob`.
 1. Every returned error is checked. Wrap with `fmt.Errorf("...: %w", err)` when adding context. Compare with `errors.Is` and `errors.As`, not `==` or string matching.
 2. Each goroutine has a stop condition (context cancel, closed channel, `WaitGroup`). No goroutine started in a loop without a bound.
 3. Shared state is guarded: lock released with `defer`, no copy of a struct containing a mutex, no map written from several goroutines.
 4. `context.Context` is the first parameter, is passed down, and is not stored in a struct. No `context.Background()` inside request paths.
 5. `defer` inside loops, `rows.Close()` and `resp.Body.Close()` missing, HTTP clients without timeouts.
-6. Interfaces are defined where they are used and kept small. Constructors return concrete types.
-7. Exported names have doc comments when the repo is a library. New exported API is flagged.
-8. SQL built by string concatenation. Secrets or tokens in log lines.
-9. Tests: table-driven where the repo does it, `t.Helper()` in helpers, `t.Cleanup` for teardown, no `time.Sleep` for synchronization.
+6. Exported names have doc comments when the repo is a library. New exported API is flagged.
+7. SQL built by string concatenation. Secrets or tokens in log lines.
+8. Tests: table-driven where the repo does it, `t.Helper()` in helpers, `t.Cleanup` for teardown, no `time.Sleep` for synchronization.
 
 ## Skills
 - `release`: when the repo has a changelog and a documented tag or GoReleaser flow (`.goreleaser.yaml`). Use the repo's real commands. Go has no version file, so the version is the tag; do not invent one.

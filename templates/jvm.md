@@ -87,6 +87,8 @@ Only for directories with real conventions. Mirror rules with `node "${CLAUDE_SK
 - `src/main/resources/**` only when profiles or config properties have documented rules.
 
 ## Reviewer subagent
+These are candidate checks, not defaults. Keep a line only when a repo fact backs it (lint or type config, a documented rule, a hard rule, a detected version), and grep the repo first: if the code already uses a pattern on purpose, drop the line or scope it with the exception.
+
 `.claude/agents/jvm-reviewer.md`, frontmatter `name: jvm-reviewer`, `description: Reviews Java and Kotlin changes for null handling, transaction and persistence mistakes, resource leaks and Spring wiring errors. Use after editing .java or .kt files.`, `tools: Read, Grep, Glob`.
 1. Resources (streams, connections, executors) are closed with try-with-resources or `use {}`.
 2. `Optional.get()` without a check, `!!` in Kotlin, `lateinit` read before assignment.

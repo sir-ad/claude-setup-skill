@@ -85,6 +85,8 @@ Generate one only when the member has conventions that the AGENTS.md summary wou
 - Any crate containing `unsafe` or FFI: safety comment and test requirements.
 
 ## Reviewer subagent
+These are candidate checks, not defaults. Keep a line only when a repo fact backs it (lint or type config, a documented rule, a hard rule, a detected version), and grep the repo first: if the code already uses a pattern on purpose, drop the line or scope it with the exception.
+
 `.claude/agents/rust-reviewer.md`, frontmatter `name: rust-reviewer`, `description: Reviews Rust changes for panics in library code, unsafe without justification, async mistakes and API breaks. Use after editing .rs files.`, `tools: Read, Grep, Glob`.
 1. No `unwrap()` or `expect()` in library code paths or request handlers. Tests and clearly infallible cases are fine with a message.
 2. Every `unsafe` block has a `// SAFETY:` comment that states the invariant. New `unsafe` in a crate that had none is a finding.
@@ -93,7 +95,7 @@ Generate one only when the member has conventions that the AGENTS.md summary wou
 5. Dependencies are added to `[workspace.dependencies]` and inherited. A new dependency in a core crate is flagged.
 6. Errors: library crates return typed errors. Errors keep their source (`#[from]`, `#[source]`). No `String` errors in public APIs.
 7. Public items in library crates: new or changed signatures are flagged as semver-relevant. Feature flags stay additive.
-8. Lossy `as` casts, `clone()` in loops over large data, `SystemTime::now()` or unseeded randomness in code that must be deterministic.
+8. Lossy `as` casts, and `SystemTime::now()` or unseeded randomness in code that must be deterministic.
 9. Tests: no `#[ignore]` without a reason, new behavior has a test, snapshots were reviewed.
 
 ## Skills

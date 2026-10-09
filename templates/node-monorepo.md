@@ -77,12 +77,14 @@ Default is zero to two. Add one only when the condition holds. Mirror them to ot
 - Database package (`prisma/**`, `drizzle/**`) when migrations are checked in.
 
 ## Reviewer subagent
+These are candidate checks, not defaults. Keep a line only when a repo fact backs it (lint or type config, a documented rule, a hard rule, a detected version), and grep the repo first: if the code already uses a pattern on purpose, drop the line or scope it with the exception.
+
 `.claude/agents/ts-reviewer.md`, frontmatter `name: ts-reviewer`, `description: Reviews TypeScript and JavaScript changes in this monorepo for type safety, workspace boundary violations and async mistakes. Use after editing source files.`, `tools: Read, Grep, Glob`.
-1. Imports reach across workspaces only through the package name, never `../../other-pkg/src` or `dist/` paths.
+1. Cross-workspace imports go through the package name, only when the repo documents that rule.
 2. A new dependency used by one member is declared in that member's `package.json`, not only the root.
-3. No `any`, `@ts-ignore` or unexplained `as` casts in changed lines. `@ts-expect-error` needs a reason.
-4. Promises are awaited or returned. `Promise.all` where calls are independent. No floating promises in handlers.
-5. Changes to a package's `index.ts` exports are flagged as public API changes.
+3. If the lint config bans `any` or `@ts-ignore`, flag new uses in changed lines.
+4. If the lint config enables a floating-promise rule, flag violations it would catch.
+5. If a package is published or documented as a public API, flag changes to its `index.ts` exports.
 6. Framework boundary checks from the detected stack (server vs client code, env access in client bundles).
 7. Tests: no `.only`, no skipped tests without a reason.
 
