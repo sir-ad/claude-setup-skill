@@ -7,12 +7,12 @@ Sources: https://code.claude.com/docs/en/best-practices , https://code.claude.co
 ## What helps
 
 - **Exact commands.** Copy-pasteable, with flags, in the order to run them: install, build, test, lint, typecheck, dev. Agents run the commands you list, so list only ones that work. Take them from the detector, not memory.
-- **How to run one test.** The single most useful line in most repos. Write it only when you know the runner and the form.
+- **How to run one test.** The single most useful line in most repos. Write it only when you know the runner and the form. Use the node-id form, not just a file path: `uv run pytest path/to/test_x.py::test_name`, `pnpm vitest run path -t "name"`, `cargo test name`, `go test ./pkg -run TestName`.
 - **Boundaries.** Three tiers: always do, ask first, never do. Typical: never edit generated code or applied migrations; ask before adding a dependency or changing a schema; never commit secrets.
 - **Conventions that differ from the language default.** One tiny code example beats a paragraph of description.
 - **Gotchas learned the hard way.** Required env vars (names only), ports, slow commands and their timeouts, tests that need a service, order dependencies ("run codegen before typecheck").
 - **Where things live,** for non-obvious directories only. One line each.
-- **Hard rules with their source.** Quote the rule and cite `file:line`, so a reader can check it.
+- **Hard rules with their source.** Quote the whole sentence and cite `file:line`, so a reader can check it. Mark a cut with "…". Never trim a qualifier ("unless", "except in") that weakens the rule. Product-scope statements are not hard rules; keep only what constrains code changes.
 - **Pointers.** "See docs/architecture.md" instead of pasting it.
 - **Version notes.** Only for the exact versions the project pins, one line each, phrased as what to do or avoid.
 
@@ -28,6 +28,8 @@ Sources: https://code.claude.com/docs/en/best-practices , https://code.claude.co
 - Secrets, tokens, `.env` values, private URLs. Name a variable (`DATABASE_URL`), never give its value.
 - Persona text ("you are a senior engineer") and shouting. Use IMPORTANT sparingly.
 - Version notes for a version the project does not use.
+- Reviewer checklists with generic items. Every line must tie to a repo fact: a config, a documented rule, or a detected version. Exempt paths that break a rule on purpose and say why.
+- Identifiers in backticks that do not exist in the repo. Grep before you write them.
 
 ## Skeleton
 

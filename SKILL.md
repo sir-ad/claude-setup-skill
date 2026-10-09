@@ -13,55 +13,54 @@ The rule of this skill: write only what earns its keep. No empty folders, no pla
 
 Flags from the user: $ARGUMENTS
 
-If `--update` is among them, jump to "Update mode" after Phase 1.
+If `--update` is among them, jump to "Update mode" after Phase 2.
 
 ---
 
-## Phase 1: Detect
+## Phase 1: Detect and load context
 
-Detector output (JSON, read-only, never opens .env files):
+Everything the skill needs is injected here: the detector JSON, the chosen template, the matching knowledge notes and the reference files. The script is read-only and never opens .env files.
 
-!`node "${CLAUDE_SKILL_DIR}/scripts/detect.mjs" . 2>/dev/null || echo '{"error":"node not available or detector failed"}'`
+!`node "${CLAUDE_SKILL_DIR}/scripts/context.mjs" . 2>/dev/null || echo 'CONTEXT_ERROR: node not available or context.mjs failed'`
 
-### Reading the JSON
+If the output above contains `CONTEXT_ERROR` or has no `## Detection` section, follow "If the context is missing" in Phase 2 before anything else.
 
-- `primary`, `languages`, `layout` (`single` | `monorepo`), `workspaces`, `packageManager`, `languageVersion`.
-- `frameworks[]`: `name`, `version` (declared), `range` (the operator, e.g. `^`), `where` (manifest), `alsoIn`. These drive version notes.
+### Reading the detection JSON
+
+- `primary`, `languages`, `layout` (`single` | `monorepo`), `workspaces`, `packageManager`, `packageManagerVersion`, `languageVersion`.
+- `frameworks[]`: `name`, `version` (declared), `range` (the operator, e.g. `^`), `group` (`runtime` | `dev` | `test` | `optional` | `peer`), `where` (manifest), `alsoIn`. These drive version notes.
 - `commands.{setup,build,test,lint,format,typecheck,dev,other}[]`: `{cmd, source, alsoIn?}`. Every command in AGENTS.md must come from here. More sources means more trust. A `source` that is only a CI file means the command is real but may need CI env.
 - `ci`, `docs`, `infra`, `versionFiles`, `warnings` (read them; they flag mixed lockfiles, capped lists, unreadable files).
 - `agentConfigs[]`: `{path, tool}` for every existing agent file (`claude`, `cursor`, `copilot`, `agents`, ...).
 - `hardRuleCandidates[]`: `{text, source}` where source is `file:line`. These are candidates, not rules.
 - `env.files` (example env files), `env.gitignored` (ignore entries already present).
 
-### If the JSON has an `error` field
-
-Node is missing or the detector failed. Do a manual pass with read-only commands only: `ls -la`, `ls .claude .github/workflows docs 2>/dev/null`, read `README.md` (first 120 lines) and the manifests that exist (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, `Gemfile`, `pom.xml`, `build.gradle*`, `composer.json`, `*.csproj`), `Makefile`, and CI workflow files. Never `cat` lockfiles or `.env*` files. Take commands only from manifest scripts, Makefile targets and CI steps. Say in the plan that detection was manual.
-
 ### Decide
 
-1. **Template**: from `primary` and `layout`. node+monorepo: `node-monorepo`; node+single: `node-single`; python; go; rust+monorepo: `rust-workspace`; rust+single: `rust-single`; jvm; ruby; dotnet; php. Anything else (deno, swift, dart, elixir, unknown): `generic`. Mixed repos: pick the dominant ecosystem and mention the secondary one in AGENTS.md.
-2. **Agents to write for**: `--agents` if given (`all` means every name in the hint). Default: `claude` plus every tool present in `agentConfigs`. Tool-by-tool behavior is in `${CLAUDE_SKILL_DIR}/reference/agent-adapters.md`.
+1. **Template**: the script picked one and says why in the header (`Template: <name> (reason)`). Override it only with a stated reason, such as a mixed repo whose dominant stack the script misjudged. Say the reason in the plan. For mixed repos mention the secondary ecosystem in AGENTS.md.
+2. **Agents to write for**: `--agents` if given (`all` means every name in the hint). Default: `claude` plus every tool present in `agentConfigs`. Tool-by-tool behavior is in the adapters reference.
 3. **Existing files** (default action is keep):
    - AGENTS.md exists: merge missing sections, never drop or reword user content.
    - CLAUDE.md has content and there is no AGENTS.md: propose moving the tool-neutral parts into AGENTS.md and leaving CLAUDE.md as `@AGENTS.md` plus Claude-only lines. Ask first.
    - Both exist and CLAUDE.md lacks the import: propose prepending `@AGENTS.md`, nothing else.
    - Legacy files (`.cursorrules`, `.windsurfrules`, `.clinerules` as a file, `.rules`, `.github/copilot-instructions.md`, `.junie/AGENTS.md`): do not touch. Report as hazards (see adapters reference).
-4. **Hard rules**: keep a candidate only if it is a real constraint on code changes ("never import apps from packages", "migrations are append-only"). Drop marketing copy, history, and setup chatter. Open the source file around the cited line if the candidate is unclear. Quote the kept rule and cite `file:line`. Invent none. No candidates left means no Hard rules section.
+4. **Hard rules**: keep a candidate only if it constrains code changes ("never import apps from packages", "migrations are append-only"). Product-scope statements ("the app supports X"), marketing copy, history and setup chatter are not hard rules. Open the source file around the cited line if the candidate is unclear. Quote the whole sentence, or mark a cut with "…". Never trim a qualifier that weakens the rule ("unless", "except", "in production"). Cite `file:line`. Invent none. No candidates left means no Hard rules section.
 5. **Ask one question, only if genuinely ambiguous**: `primary` is `unknown` with source files present, `warnings` report conflicting lockfiles or package managers, or two ecosystems are equally weighted. Never ask for something the JSON answers.
 
 ---
 
-## Phase 2: Read guidance
+## Phase 2: Use the guidance
 
-Read these before writing:
+The template, knowledge notes and reference files are already in the injected context above. Use them; do not re-read them. A template says what to include for the stack. It is a reference, not boilerplate to paste.
 
-1. `${CLAUDE_SKILL_DIR}/templates/<name>.md` for the chosen template. The list: node-monorepo, node-single, python, go, rust-single, rust-workspace, jvm, ruby, dotnet, php, generic. A template says what to include for the stack. It is a reference, not boilerplate to paste.
-2. `${CLAUDE_SKILL_DIR}/knowledge/` notes for the detected ecosystem. The files are node.md, frontend.md, python.md, rust.md, go.md, jvm.md, ruby.md, dotnet.md, php.md, mobile.md and infra.md. Read only the ones that match (a Next.js app reads node.md and frontend.md; a Terraform folder adds infra.md).
-3. `${CLAUDE_SKILL_DIR}/reference/writing-agent-files.md` for how to write the content.
-4. `${CLAUDE_SKILL_DIR}/reference/agent-adapters.md` when any non-Claude tool is selected.
-5. `${CLAUDE_SKILL_DIR}/reference/claude-code.md` for exact file formats before writing Claude files.
+Knowledge entries are version-gated. The project's declared version always wins. Write a version note only when the declared version is inside the entry's gate. If the declared version is a range, use its lower bound. If there is no version at all, skip version notes for that package. Gate package-manager notes (pnpm, yarn, npm) on `packageManagerVersion`. Notes for `dev`, `test`, `optional` or `peer` dependencies are lower priority than `runtime` ones. A `test`-group package (Vitest, Jest, Playwright) is never described as the project's framework. Never write a note for a version the project does not use.
 
-Knowledge entries are version-gated. The project's declared version always wins. Write a version note only when the detected version is inside the entry's gate. If the declared version is a range, use its lower bound to evaluate the gate. If there is no version at all, skip version notes for that package. Never write a note for a version the project does not use.
+### If the context is missing
+
+The injection failed, or Node is missing. Then:
+1. `Read` the files from `${CLAUDE_SKILL_DIR}`. Templates are in `${CLAUDE_SKILL_DIR}/templates/<name>.md`. The list: node-monorepo, node-single, python, go, rust-single, rust-workspace, jvm, ruby, dotnet, php, generic. Knowledge notes are in `${CLAUDE_SKILL_DIR}/knowledge/`. The files are node.md, frontend.md, python.md, rust.md, go.md, jvm.md, ruby.md, dotnet.md, php.md, mobile.md and infra.md. Read only the notes that match the stack. Also read the three files in `${CLAUDE_SKILL_DIR}/reference/`.
+2. Get detection from `node "${CLAUDE_SKILL_DIR}/scripts/detect.mjs" .`. If Node is missing, do a manual pass with read-only commands: `ls -la`, `ls .claude .github/workflows docs 2>/dev/null`, `README.md` (first 120 lines), the manifests that exist (`package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, `Gemfile`, `pom.xml`, `build.gradle*`, `composer.json`, `*.csproj`), `Makefile`, and CI workflow files. Never `cat` lockfiles or `.env*` files. Take commands only from manifest scripts, Makefile targets and CI steps. Say in the plan that detection was manual.
+3. If the skill files cannot be read either, STOP. Tell the user the skill directory is out of reach and suggest `--add-dir ~/.claude/skills/claude-setup` for headless runs. Do not continue with a degraded plan.
 
 ---
 
@@ -85,6 +84,7 @@ Will write:
   adapters: .gemini/settings.json, .aider.conf.yml, rule mirrors (cursor, copilot, ...)
   .gitignore                             (append: CLAUDE.local.md, .claude/settings.local.json)
 
+Permissions: allow <patterns>; deny <patterns>; ask <patterns>   (exactly what will be written)
 Version notes (<n>): <package@version -> short title>, ...
 Hard rules kept (<n>):
   - "<quote>" (README.md:5) -> AGENTS.md
@@ -104,23 +104,25 @@ Flags:
 - `--skip-skills`: omit `.claude/skills/`.
 - Offer the formatter hook only if the detector found a formatter (`commands.format` or a formatter in `frameworks`) and a single-file command exists in the template. Default is no.
 
-Wait for the answer. If a file exists, never replace it without a per-file yes.
+The plan is a contract: Phase 4 writes exactly what it lists. Wait for the answer. If a file exists, never replace it without a per-file yes.
 
 ---
 
 ## Phase 4: Generate
 
-Write in this order. Exact formats are in `${CLAUDE_SKILL_DIR}/reference/claude-code.md`.
+Write in this order, exactly what the confirmed plan lists: no extra files, no extra permission entries, none dropped. Exact formats are in the Claude Code reference (in the injected context).
+
+If a write is refused (Claude Code can protect `.claude/` paths in some permission modes), do not skip it silently and do not work around it. Print the full intended content of that file in the final report and tell the user to create it, or to rerun interactively.
 
 ### AGENTS.md (target 150 lines or fewer)
 
 Sections, each only if it has real content:
 1. One-line stack summary.
-2. `## Commands`: setup, build, test, lint, format, typecheck, dev, as available. Exact, copy-pasteable. For monorepos, root commands first, then how to run one workspace. Add how to run a single test only when the runner is detected and the form is in the template or a knowledge note.
+2. `## Commands`: setup, build, test, lint, format, typecheck, dev, as available. Exact, copy-pasteable. For monorepos, root commands first, then how to run one workspace. Add how to run a single test only when the runner is detected and the form is in the template or a knowledge note. Use the runner's node-id form when known, not just a file path: `uv run pytest path/to/test_x.py::test_name`, `pnpm vitest run path -t "name"`, `cargo test name`, `go test ./pkg -run TestName`.
 3. `## Repo map`: only directories that matter and are not obvious. No tree dumps.
 4. `## Conventions`: only what differs from language defaults or is documented in the repo.
-5. `## Hard rules`: quoted, each with its source, e.g. `- "Packages must not import from apps." (README.md:5)`.
-6. `## Version notes`: at most 10 one-line bullets from knowledge/, for versions the project declares.
+5. `## Hard rules`: quoted in full, each with its source, e.g. `- "Packages must not import from apps." (README.md:5)`.
+6. `## Version notes`: at most 10 one-line bullets from knowledge notes, for versions the project declares. Runtime frameworks first.
 7. `## Boundaries`: never touch (generated code, lockfiles by hand, applied migrations, secrets) and ask first (new dependencies, schema changes).
 
 In a monorepo, add a nested AGENTS.md in a workspace only when it has its own commands or rules. Include it in the plan.
@@ -139,11 +141,11 @@ Start from `"$schema": "https://json.schemastore.org/claude-code-settings.json"`
 
 ### .claude/rules/<name>.md
 
-Frontmatter `paths:` (YAML list of globs), then 3 to 10 lines. Only for directories with real, distinct conventions. Never restate AGENTS.md. Zero rules is a valid result.
+Frontmatter `paths:` (YAML list of globs), then 3 to 10 lines. Only for directories with real, distinct conventions. Never restate AGENTS.md. Zero rules is a valid result. Every identifier in backticks (function, flag, path, config key) must exist in the repo: grep for it before writing.
 
 ### .claude/agents/<lang>-reviewer.md
 
-Frontmatter `name`, `description`, `tools: Read, Grep, Glob`. The description names the checks ("Reviews TypeScript changes for strictness, RSC boundaries and PII in logs. Use proactively after code changes."). Body is the template's checklist, tuned to this repo and its hard rules.
+Frontmatter `name`, `description`, `tools: Read, Grep, Glob`. The description names the checks ("Reviews TypeScript changes for strictness, RSC boundaries and PII in logs. Use proactively after code changes."). Body is a checklist where every line ties to a repo fact: a config file, a documented rule, a hard rule, or a detected framework version. Drop template items you cannot tie. If a directory deliberately breaks a rule (for example a legacy module pinned to an older library API), exempt that path in the checklist and say why. Never flag what the repo does on purpose.
 
 ### .claude/skills/<name>/SKILL.md
 
@@ -169,24 +171,25 @@ Only for selected agents. Exact snippets and merge rules are in the adapters ref
 
 ## Phase 5: Verify and report
 
-1. List every file written with its line count (`wc -l <files>`). Flag AGENTS.md over 150 lines or CLAUDE.md over 200. AGENTS.md must stay far below Codex's 32 KiB cap.
-2. Check each written `.json` parses: `node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" <file>`.
-3. Confirm no secrets landed in generated files. Do not read `.env*`. Grep the written files for key-like text, e.g. `grep -nEi "(api[_-]?key|secret|token|password)[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9/+_-]{8,}|BEGIN [A-Z ]*PRIVATE KEY|ghp_|AKIA[0-9A-Z]{16}" <files>`. Fix any hit.
-4. If adapters with scoped rules were written, run `node "${CLAUDE_SKILL_DIR}/scripts/sync-rules.mjs" --targets <same list> --check`. It must report no pending changes. (`--check` without `--targets` is a usage error.)
-5. If the user said yes in the plan, run the fastest detected check once (lint or typecheck, or the single-test form if known) to confirm the commands in AGENTS.md work. Run nothing without that yes. Never run commands with side effects (deploy, publish, migrate, dev servers). If a command fails, fix it or drop it from AGENTS.md and say so.
-6. Print: the tree, the line counts, hazards found, and one concrete check per tool written:
+1. Run one call over every file written (and every file the plan listed):
+   `node "${CLAUDE_SKILL_DIR}/scripts/verify.mjs" --dir . <files...>`
+   It checks line counts, JSON validity, secret-like text, AGENTS.md and CLAUDE.md size, the `@AGENTS.md` import, and settings.json safety (`$schema`, no `Bash(*)`, no `auto` or `bypassPermissions`). It never opens .env files. Fix every error and re-run until it exits 0.
+2. Compare the written files with the confirmed plan. Report any difference: a file, a permission entry or a version note planned but not written, or written but not planned.
+3. If adapters with scoped rules were written, run `node "${CLAUDE_SKILL_DIR}/scripts/sync-rules.mjs" --targets <same list> --check`. It must report no pending changes. (`--check` without `--targets` is a usage error.)
+4. If the user said yes in the plan, run the fastest detected check once (lint or typecheck, or the single-test form if known) to confirm the commands in AGENTS.md work. Run nothing without that yes. Never run commands with side effects (deploy, publish, migrate, dev servers). If a command fails, fix it or drop it from AGENTS.md and say so.
+5. Print: the tree, the line counts, hazards found, any file the user must create by hand (with its content), and one concrete check per tool written:
    - Claude Code: `/memory` shows AGENTS.md imported through CLAUDE.md. `/context` lists the memory files.
    - Gemini CLI: `/memory show` includes the AGENTS.md text.
    - Codex: ask it to summarize the instructions it loaded.
    - Copilot: in a chat response, expand References and look for AGENTS.md.
    - Cursor, Cline, Windsurf, Aider: ask the agent to quote the test command from its instructions.
-7. Remind the user to commit AGENTS.md, CLAUDE.md, `.claude/` (not `settings.local.json`) and `.worktreeinclude`.
+6. Remind the user to commit AGENTS.md, CLAUDE.md, `.claude/` (not `settings.local.json`) and `.worktreeinclude`.
 
 ---
 
 ## Update mode (`--update`)
 
-1. Re-run detection (Phase 1). Read the existing AGENTS.md, CLAUDE.md, `.claude/settings.json`, `.claude/rules/`, adapters and rule mirrors.
+1. Detection and guidance are already in the injected context (Phase 1). Read the existing AGENTS.md, CLAUDE.md, `.claude/settings.json`, `.claude/rules/`, adapters and rule mirrors.
 2. Compare: `## Commands` against `commands.*`; `## Version notes` against `frameworks` and the current knowledge entries (new, changed, or no longer applicable); rule mirrors against `.claude/rules/` via `sync-rules.mjs --targets <list> --check`; hard-rule candidates not yet recorded; missing adapters for tools now present in `agentConfigs`.
 3. Print a diff-style plan, one hunk per change, each marked `+`, `-` or `~` with its reason and source.
 4. Apply only the hunks the user confirms. Touch only generated sections (Commands, Version notes, mirrors, adapters). Never rewrite user prose, reorder sections, or remove a rule the user wrote.
@@ -202,6 +205,7 @@ Only for selected agents. Exact snippets and merge rules are in the adapters ref
 - No invented commands, hard rules or version notes. Every line traces to the detector, the repo, or a cited knowledge entry.
 - No generic advice ("write clean code"), no restating linter rules, no long prose.
 - No secrets, tokens or `.env` values in any file. Never read `.env*`.
+- No plan drift: write what the confirmed plan lists, nothing else.
 - No `Bash(*)`, no `defaultMode: auto` or `bypassPermissions` in committed settings.
 - No `.junie/AGENTS.md`, no legacy single-file rules, no Roo Code files.
 - No stub skills. Working or skipped.

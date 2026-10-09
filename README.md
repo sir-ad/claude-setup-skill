@@ -137,11 +137,15 @@ Details and hazards (for example, legacy `.cursorrules` shadowing `AGENTS.md` in
 
 ## How it works
 
-1. **Detect.** `scripts/detect.mjs` (Node, zero dependencies, read-only) prints JSON: stack, workspaces, framework versions, commands with their sources, existing agent configs, hard-rule candidates. If Node is missing, the skill falls back to reading manifests by hand.
-2. **Read guidance.** Picks one of the `templates/` and the matching `knowledge/` notes for your ecosystem.
+1. **Detect.** `scripts/context.mjs` (Node, zero dependencies, read-only) runs `scripts/detect.mjs` and prints one block of context: the detection JSON (stack, workspaces, framework versions, commands with their sources, existing agent configs, hard-rule candidates), the chosen template, the matching `knowledge/` notes and the reference files. If Node is missing, the skill reads the files itself and falls back to reading manifests by hand.
+2. **Use the guidance.** The template and knowledge notes are already in context. The model may override the template choice only with a stated reason.
 3. **Plan.** Prints what it will write, the version notes and hard rules it kept, and any hazards. Asks before touching existing files.
 4. **Generate.** Writes `AGENTS.md` first, then `CLAUDE.md`, `.claude/`, and adapters.
-5. **Verify.** Prints the tree and line counts, checks JSON validity, scans for secrets, optionally runs one fast check (lint, typecheck or a single test) to confirm the commands work, and gives one check per tool (`/memory` in Claude Code, `/memory show` in Gemini CLI).
+5. **Verify.** `scripts/verify.mjs` checks every written file: line counts, JSON validity, secret-like text, the `@AGENTS.md` import and settings safety. The skill then compares the files with the confirmed plan, optionally runs one fast check (lint, typecheck or a single test) to confirm the commands work, and gives one check per tool (`/memory` in Claude Code, `/memory show` in Gemini CLI).
+
+## Headless / CI use
+
+`claude -p "/claude-setup --dry-run"` works and prints the plan. For a run that writes files, use interactive mode: in some permission modes Claude Code refuses writes under `.claude/`. When that happens the skill prints the full file content in its report instead of skipping it, and you create the file yourself. If the context injection is unavailable (the skill directory is outside the allowed paths), pass `--add-dir ~/.claude/skills/claude-setup`.
 
 ## Updating
 
