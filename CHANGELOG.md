@@ -38,6 +38,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - When a repo defines no setup command, the skill adds an implied one.
 - `install.sh` is now POSIX `sh` instead of bash.
 - The README demo shows AGENTS.md output and the Cursor mirror.
+- Reinstall backups go to `~/.claude/backups/claude-setup/` so Claude Code no longer lists the old copy as a second skill. Old backups in the skills folder are moved there on install.
 
 ## [0.1.0] - 2026-04-25
 
