@@ -24,10 +24,12 @@ Use when the repo has npm, yarn, pnpm or bun workspaces, or turbo, nx or lerna c
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(<pm> install)",
+      "Bash(<pm> install *)",
       "Bash(<pm> run *)",
-      "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
     ],
     "ask": ["Bash(git push *)"],
     "deny": [

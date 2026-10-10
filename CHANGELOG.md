@@ -7,6 +7,44 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
+### Added
+
+- `scripts/graph.mjs` builds a module-level import graph for JS/TS, Python, Go and Rust. It ranks modules, finds entry points, and prints a Mermaid graph and a budgeted repo map with `--markdown`. It has no dependencies and never opens `.env` files.
+- `docs/project-structure.md` holds the graph between `<!-- claude-setup:begin graph -->` and `<!-- claude-setup:end graph -->`. `--update` refreshes only the text inside those markers. The skill also writes `docs/architecture.md`, `docs/config.md` (env var names, never values) and, when no ADR folder exists, `docs/decisions/`.
+- `blueprints/` tells the skill how to write each generated file: when to write it, which inputs to read, the rules and a skeleton. Every blueprint is injected into the context.
+- Agentic pipeline: read-only `explorer` and `test-runner` subagents, a reviewer that keeps project memory, and the `plan-task` and `handoff` skills. Subagents never get the `Agent` tool. The skill is named `plan-task` because Claude Code has a built-in `/plan` command.
+- Topic rules: `.claude/rules/code-style.md`, `testing.md` and `security.md`, built from the repo first and a short baseline second.
+- AGENTS.md gains a tool-neutral "Working agreements" section. CLAUDE.md gains a short section of token and memory habits.
+- `knowledge/practices.md`, a cited do and don't baseline for security, testing, code changes, dependencies and git.
+- `reference/agentic-pipeline.md`, `reference/token-efficiency.md` and `reference/code-search.md`.
+- Opt-in extras, each a separate yes in the plan: a SessionStart hook that prints `.claude/handoff.md`, a code-search MCP entry in `.mcp.json`, and `.codex/config.toml`.
+- Flags `--skip-docs` and `--skip-pipeline`.
+- `test/consistency.test.mjs` checks that README, SKILL.md, the templates and the adapters reference agree.
+- `verify.mjs` checks that links in AGENTS.md and CLAUDE.md point to files that exist. `--expect <paths>` turns any planned file that was not written into an error. Phase 5 passes the plan's file list.
+
+### Changed
+
+- The default output now includes docs, topic rules and the pipeline files. `--minimal` still writes only AGENTS.md, CLAUDE.md and `.claude/settings.json`.
+- Phase 3 prints the exact formatter hook, the handoff hook and every `.gitignore` entry the skill will append. The plan lists `.gitignore` entries exactly as Phase 4 writes them.
+- One formatter-hook recipe, the script in `reference/claude-code.md`.
+- All templates allow only read-only git (`diff`, `status`, `log`, `show`) and use the space-glob form for install and test rules, so `pnpm install --frozen-lockfile` matches.
+- README says commands are traced to your scripts and CI, not verified by running them. It separates what scripts enforce from what the skill instructs. Version notes in `knowledge/` cite sources; the one-line notes in AGENTS.md do not.
+- The skill writes `.claude/` first and AGENTS.md and CLAUDE.md last. They mention only files that were written or already exist. Refused files are listed under "Files to create by hand" with their content.
+- `docs/config.md` cites where code reads each variable, or says that no code reads it. `docs/architecture.md` lists an external service only when code calls it, with a `path:line` citation.
+- The explorer page shows the new files and flags.
+
+### Fixed
+
+- `detect.mjs` finds workspace members when the file walk runs out of budget, keeps members named `build`, `dist`, `vendor` or `target`, and no longer lets one huge folder starve the walk.
+- `detect.mjs` gives JVM, .NET, Ruby, PHP, sbt and CMake projects implied commands and language versions. CI commands keep their working directory. `catalog:`, `workspace:*` and `latest` are no longer reported as versions. Yarn Berry gets the right workspace command. Go `/vN` module names, more agent config directories and odd script names are handled.
+- Hard-rule candidates are whole paragraphs and no longer cite sections the skill wrote itself.
+- `verify.mjs` detects Anthropic, OpenAI, Stripe, Google, GitHub, GitLab, Slack, npm and AWS keys, JWTs and credentials in URLs. Invalid JSON reports only a line and column. It errors on unrestricted `Bash` allows and a missing `@AGENTS.md` import.
+- `sync-rules.mjs` reports a legacy `.clinerules` file as a conflict instead of crashing. `--check` ignores CRLF differences.
+- The `.gitignore` plan listed two entries while Phase 4 appended three.
+- A hard-rule sentence that runs into a short code block is kept whole.
+
 ## [0.2.0] - 2026-10-10
 
 ### Added

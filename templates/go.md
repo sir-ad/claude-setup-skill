@@ -31,8 +31,10 @@ Use when `go.mod` or `go.work` exists and Go is the primary language. Covers ser
       "Bash(go vet *)",
       "Bash(go mod tidy)",
       "Bash(gofmt *)",
-      "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
     ],
     "ask": ["Bash(git push *)", "Bash(go generate *)"],
     "deny": [

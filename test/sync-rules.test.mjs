@@ -206,3 +206,69 @@ test('a project without .claude/rules is a clean no-op', () => {
   assert.equal(r.code, 0);
   assert.match(r.out, /summary: 0 write, 0 unchanged, 0 remove, 0 conflict/);
 });
+
+test('a legacy .clinerules FILE is a conflict, not a crash, and other targets still sync', () => {
+  const dir = project();
+  fs.writeFileSync(path.join(dir, '.clinerules'), 'legacy single-file rules\n');
+  const r = sync(dir, 'cline,cursor');
+  assert.equal(r.code, 1);
+  assert.equal(r.err, '');
+  assert.match(r.out, /^conflict\s+cline\s+\.clinerules is a legacy file; move it into \.clinerules\/ or delete it$/m);
+  assert.equal(r.out.match(/^conflict/gm).length, 1, 'one conflict for the target, not one per rule');
+  assert.match(r.out, /^write\s+cursor\s+\.cursor\/rules\/api\.mdc$/m);
+  assert.ok(exists(dir, '.cursor/rules/api.mdc'));
+  assert.equal(read(dir, '.clinerules'), 'legacy single-file rules\n');
+  assert.match(r.out, /summary: 4 write, 0 unchanged, 0 remove, 1 conflict/);
+  // --check and --dry-run behave the same way.
+  assert.equal(sync(dir, 'cline', ['--check']).code, 1);
+  assert.equal(sync(dir, 'cline', ['--dry-run']).code, 1);
+  assert.equal(syncRules({ dir, targets: ['cline', 'windsurf'], dryRun: true }).conflicts, 1);
+  // With no rules there is nothing to write, so the file is not a problem.
+  fs.rmSync(path.join(dir, '.claude'), { recursive: true });
+  assert.equal(sync(dir, 'cline').code, 0);
+});
+
+test('--check ignores line endings: CRLF mirrors count as unchanged', () => {
+  const dir = project();
+  assert.equal(sync(dir).code, 0);
+  const files = ['.cursor/rules/api.mdc', '.github/instructions/api.instructions.md', '.clinerules/general.md', '.windsurf/rules/sub-db.md'];
+  for (const rel of files) {
+    const abs = path.join(dir, rel);
+    fs.writeFileSync(abs, fs.readFileSync(abs, 'utf8').replace(/\n/g, '\r\n'));
+  }
+  const check = sync(dir, ALL, ['--check']);
+  assert.equal(check.code, 0, check.out);
+  assert.match(check.out, /summary: 0 write, 16 unchanged, 0 remove, 0 conflict/);
+  // A normal run leaves the CRLF files alone, and a real change still shows up.
+  const run = sync(dir);
+  assert.match(run.out, /summary: 0 write, 16 unchanged/);
+  assert.ok(read(dir, files[0]).includes('\r\n'));
+  fs.appendFileSync(path.join(dir, '.claude/rules/api.md'), '- New rule.\n');
+  assert.equal(sync(dir, ALL, ['--check']).code, 1);
+});
+
+test('generated files are written with LF, also when the source rule uses CRLF', () => {
+  const dir = project();
+  const src = path.join(dir, '.claude/rules/api.md');
+  fs.writeFileSync(src, fs.readFileSync(src, 'utf8').replace(/\n/g, '\r\n'));
+  assert.equal(sync(dir).code, 0);
+  for (const rel of ['.cursor/rules/api.mdc', '.github/instructions/api.instructions.md', '.clinerules/api.md', '.windsurf/rules/api.md']) {
+    assert.ok(!read(dir, rel).includes('\r'), rel);
+  }
+  // A CRLF generated file that differs in content is rewritten as LF.
+  const cursor = path.join(dir, '.cursor/rules/api.mdc');
+  fs.writeFileSync(cursor, read(dir, '.cursor/rules/api.mdc').replace('Return typed errors.', 'old text').replace(/\n/g, '\r\n'));
+  assert.match(sync(dir, 'cursor').out, /^write\s+cursor\s+\.cursor\/rules\/api\.mdc$/m);
+  assert.ok(!read(dir, '.cursor/rules/api.mdc').includes('\r'));
+  assert.equal(sync(dir, 'cursor', ['--check']).code, 0);
+});
+
+test('a CRLF generated file whose source rule was removed is still recognised as stale', () => {
+  const dir = project();
+  sync(dir, 'cursor');
+  const gone = path.join(dir, '.cursor/rules/tests.mdc');
+  fs.writeFileSync(gone, fs.readFileSync(gone, 'utf8').replace(/\n/g, '\r\n'));
+  fs.rmSync(path.join(dir, '.claude/rules/tests.md'));
+  assert.match(sync(dir, 'cursor').out, /^remove\s+cursor\s+\.cursor\/rules\/tests\.mdc$/m);
+  assert.equal(exists(dir, '.cursor/rules/tests.mdc'), false);
+});

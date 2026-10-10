@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { buildContext, chooseTemplate, chooseKnowledge } from '../scripts/context.mjs';
+import { buildContext, chooseTemplate, chooseKnowledge, withoutCurrentVersions } from '../scripts/context.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -29,9 +29,22 @@ process.on('exit', () => {
 });
 
 // Only the script's own headings; the embedded files have headings of their own.
-const OWN_HEADING = /^(# claude-setup context|## Detection$|## (Template|Knowledge|Reference): (templates|knowledge|reference)\/)/;
+const OWN_HEADING = /^(# claude-setup context|## Detection$|## Repo graph$|## (Template|Knowledge|Reference|Blueprint): (templates|knowledge|reference|blueprints)\/)/;
 const headers = (out) => out.split('\n').filter((l) => OWN_HEADING.test(l));
 const header = (out, prefix) => out.split('\n').find((l) => l.startsWith(prefix));
+const BLUEPRINTS = ['blueprints/README.md', ...(() => {
+  const found = [];
+  const visit = (rel) => {
+    for (const e of fs.readdirSync(path.join(ROOT, rel), { withFileTypes: true })) {
+      const child = `${rel}/${e.name}`;
+      if (e.isDirectory()) visit(child);
+      else if (e.name.endsWith('.md') && child !== 'blueprints/README.md') found.push(child);
+    }
+  };
+  visit('blueprints');
+  return found.sort();
+})()];
+const REFERENCES = ['writing-agent-files.md', 'claude-code.md', 'agent-adapters.md', 'agentic-pipeline.md', 'token-efficiency.md', 'code-search.md'];
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\s+$/, '');
 
 test('sections appear in the documented order with whole files included', () => {
@@ -42,9 +55,10 @@ test('sections appear in the documented order with whole files included', () => 
     '## Template: templates/node-monorepo.md',
     '## Knowledge: knowledge/node.md',
     '## Knowledge: knowledge/frontend.md',
-    '## Reference: reference/writing-agent-files.md',
-    '## Reference: reference/claude-code.md',
-    '## Reference: reference/agent-adapters.md',
+    '## Repo graph',
+    '## Knowledge: knowledge/practices.md',
+    ...BLUEPRINTS.map((rel) => `## Blueprint: ${rel}`),
+    ...REFERENCES.map((file) => `## Reference: reference/${file}`),
   ]);
   assert.equal(header(out, 'Template:'), 'Template: node-monorepo (reason: primary=node, layout=monorepo)');
   assert.equal(header(out, 'Knowledge:'), 'Knowledge: node.md, frontend.md');
@@ -95,8 +109,10 @@ test('fixtures pick the expected template and knowledge', () => {
 test('generic repos still print the generic template and all references', () => {
   const out = buildContext(fixture('empty'));
   assert.ok(out.includes('## Template: templates/generic.md'));
-  assert.ok(!out.includes('## Knowledge:'));
+  // Only the always-on practices note; no ecosystem note.
+  assert.deepEqual(out.split('\n').filter((l) => l.startsWith('## Knowledge: ')), ['## Knowledge: knowledge/practices.md']);
   assert.ok(out.includes('## Reference: reference/agent-adapters.md'));
+  assert.ok(out.includes('## Knowledge: knowledge/practices.md'));
 });
 
 test('infra flags add infra.md', () => {
@@ -170,4 +186,57 @@ test('the detection block carries the generated field', () => {
   const start = out.indexOf('```json\n') + '```json\n'.length;
   const parsed = JSON.parse(out.slice(start, out.indexOf('\n```\n', start)));
   assert.deepEqual(parsed.generated, [{ path: 'README.md', evidence: 'written by scripts/docs.py (generate-readme)' }]);
+});
+
+test('header lists the sections and the exact size', () => {
+  const out = buildContext(fixture('node-pnpm-monorepo'));
+  const lines = out.split('\n');
+  assert.match(lines[3], /^Sections: Detection, Template: templates\/node-monorepo\.md, Knowledge: knowledge\/node\.md, Knowledge: knowledge\/frontend\.md, Repo graph, Knowledge: knowledge\/practices\.md, Blueprint: blueprints\/README\.md, /);
+  const names = lines[3].slice('Sections: '.length).split(', ');
+  assert.equal(names.length, 1 + 1 + 2 + 1 + 1 + BLUEPRINTS.length + REFERENCES.length);
+  for (const name of names) assert.ok(lines.includes(`## ${name}`), name);
+  assert.equal(lines[4], `Size: ${out.split('\n').length - 1} lines`);
+  assert.equal(lines[5], '');
+});
+
+test('the repo graph section follows the template and notes, before practices', () => {
+  const out = buildContext(fixture('graph-ts'));
+  const at = (h) => out.indexOf(`\n${h}\n`);
+  assert.ok(at('## Repo graph') > at('## Template: templates/node-single.md') || at('## Repo graph') > at('## Template: templates/node-monorepo.md'));
+  assert.ok(at('## Repo graph') < at('## Knowledge: knowledge/practices.md'));
+  assert.ok(out.includes('### Module graph'));
+  assert.ok(out.includes('### Entry points'));
+  assert.ok(out.includes('### Repo map'));
+  // A graph for a repo with no source files still renders, never throws.
+  assert.ok(buildContext(fixture('empty')).includes('No source files found.'));
+});
+
+test('blueprints are included in full, README first, then sorted by path', () => {
+  const out = buildContext(fixture('empty'));
+  const order = out.split('\n').filter((l) => l.startsWith('## Blueprint: ')).map((l) => l.slice('## Blueprint: '.length));
+  assert.deepEqual(order, BLUEPRINTS);
+  assert.equal(order[0], 'blueprints/README.md');
+  for (const rel of BLUEPRINTS) assert.ok(out.includes(read(rel)), rel);
+});
+
+test('practices and the new references are always present, after the blueprints', () => {
+  for (const name of ['empty', 'python-uv', 'go-mod']) {
+    const out = buildContext(fixture(name));
+    const hs = out.split('\n').filter((l) => OWN_HEADING.test(l));
+    assert.ok(hs.indexOf('## Knowledge: knowledge/practices.md') > hs.indexOf('## Repo graph'), name);
+    assert.ok(hs.indexOf('## Reference: reference/code-search.md') > hs.lastIndexOf(`## Blueprint: ${BLUEPRINTS.at(-1)}`), name);
+    assert.ok(out.includes(read('knowledge/practices.md')), name);
+    assert.ok(out.includes(read('reference/token-efficiency.md')), name);
+  }
+});
+
+test('current-versions tables stay while the context is small, and the trimmer keeps everything else', () => {
+  assert.ok(buildContext(fixture('python-uv')).includes('## Current versions'));
+  const note = '# Python\n\n## Current versions\n| a | b |\n\n## Version notes\n- note\n\n## Default toolchain\n- uv\n';
+  const trimmed = withoutCurrentVersions(note);
+  assert.ok(!trimmed.includes('| a | b |'));
+  assert.ok(!trimmed.includes('## Current versions'));
+  assert.ok(trimmed.includes('## Version notes\n- note'));
+  assert.ok(trimmed.includes('## Default toolchain\n- uv'));
+  assert.equal(withoutCurrentVersions('# X\n\n## Version notes\n- n\n'), '# X\n\n## Version notes\n- n\n');
 });

@@ -22,9 +22,9 @@ const PLACEHOLDER = /\b(todo|tbd|fixme)\b|<fill|lorem ipsum/i;
 const NEGATION = /\b(no|not|never|don't|do not)\b/i;
 
 // Directories whose markdown files get the heading and placeholder checks.
-const MARKDOWN_DIRS = ['templates', 'knowledge', 'reference'];
+const MARKDOWN_DIRS = ['templates', 'knowledge', 'reference', 'blueprints'];
 // Runtime directories. They are required only once they exist on disk.
-const OPTIONAL_RUNTIME_DIRS = ['knowledge', 'reference', 'scripts'];
+const OPTIONAL_RUNTIME_DIRS = ['knowledge', 'reference', 'blueprints', 'scripts'];
 
 const failures = [];
 const warnings = [];
@@ -146,6 +146,15 @@ function checkSkill(shipped) {
   }
   for (const top of unshipped) {
     fail(`SKILL.md uses "${top}" but it is not in package.json "files" and bin/install.js ITEMS`);
+  }
+
+  // Plain blueprints/<path>.md mentions (no placeholder characters) must exist and ship.
+  const blueprintRefs = new Set([...text.matchAll(/\bblueprints\/[\w./-]*\w\.md\b/g)].map((m) => m[0]));
+  for (const ref of blueprintRefs) {
+    if (!exists(ref)) fail(`SKILL.md mentions ${ref}, which does not exist`);
+  }
+  if (blueprintRefs.size > 0 && shipped && !ships(shipped, 'blueprints')) {
+    fail('SKILL.md uses "blueprints" but it is not in package.json "files" and bin/install.js ITEMS');
   }
 
   // Lists of files named in SKILL.md: each must exist.

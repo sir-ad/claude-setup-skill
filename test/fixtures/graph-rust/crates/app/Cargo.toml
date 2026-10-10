@@ -1,0 +1,8 @@
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+engine-core = { path = "../engine" }
+util-kit = { path = "../util" }
+serde = "1"

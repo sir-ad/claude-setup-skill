@@ -32,8 +32,10 @@ Use when `Cargo.toml` has `[package]` and no `[workspace]`: one binary, one libr
       "Bash(cargo clippy *)",
       "Bash(cargo fmt *)",
       "Bash(cargo doc *)",
-      "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
     ],
     "ask": ["Bash(git push *)", "Bash(cargo add *)", "Bash(cargo install *)"],
     "deny": [
