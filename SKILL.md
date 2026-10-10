@@ -134,7 +134,9 @@ Rules for the plan:
 
 ## Phase 4: Generate
 
-Write in this order, exactly what the confirmed plan lists: no extra files, no extra permission entries, no extra version notes, none dropped. If a write is refused (Claude Code can protect `.claude/` paths in some permission modes), do not skip it silently and do not work around it. Print the full intended content in the final report (for settings.json, the same JSON as in the plan) and tell the user to create it, or to rerun interactively.
+**Write order.** Write `.claude/` files first, then `docs/`, then adapters (with `.gitignore` and `.worktreeinclude`), and AGENTS.md and CLAUDE.md last. AGENTS.md goes last so an interrupted run does not leave links to files that were never written. AGENTS.md and CLAUDE.md may mention a file (agent, skill, doc) only if it was written successfully in this run or already exists. If a write was refused or failed, leave its mention out of AGENTS.md and CLAUDE.md, and list the file under `Files to create by hand` in the final report with its full content.
+
+Write exactly what the confirmed plan lists: no extra files, no extra permission entries, no extra version notes, none dropped. Use the plan's file names exactly, including the reviewer name. Never drop or rename a planned file silently; if one is skipped, name it and say why in the report. If a write is refused (Claude Code can protect `.claude/` paths in some permission modes), do not work around it. For settings.json, the `Files to create by hand` entry is the same JSON as in the plan.
 
 Follow the blueprint for each file. Each one lists its inputs, rules and size cap.
 
@@ -203,12 +205,12 @@ Start from `"$schema": "https://json.schemastore.org/claude-code-settings.json"`
 
 ## Phase 5: Verify and report
 
-1. Run one call over every file written: `node "${CLAUDE_SKILL_DIR}/scripts/verify.mjs" --dir . <files...>`. Include docs, agents, skills, rules and settings. It checks line counts, JSON validity, secret-like text, AGENTS.md and CLAUDE.md size, the `@AGENTS.md` import and settings.json safety. It never opens .env files. Fix every error and re-run until it exits 0.
+1. Run one call over every planned file that was written in this run or already exists: `node "${CLAUDE_SKILL_DIR}/scripts/verify.mjs" --dir . <files...>`. Include docs, agents, skills, rules and settings. It checks line counts, JSON validity, secret-like text, AGENTS.md and CLAUDE.md size, the `@AGENTS.md` import and settings.json safety. A planned file that is missing is reported as an error. It never opens .env files. Fix every error and re-run until it exits 0. Quote its final `verify:` summary line verbatim in the report.
 2. Check each written agent and skill against its blueprint: every field in the blueprint's `Frontmatter:` rule is present with the stated value. Check that the graph fence markers appear once each and that the text between them equals the injected Repo graph section.
 3. Compare the written files with the confirmed plan. Report any difference: a file, permission entry, hook or version note planned but not written, or written but not planned.
 4. If adapters with scoped rules were written, run `node "${CLAUDE_SKILL_DIR}/scripts/sync-rules.mjs" --targets <same list> --check`. It must report no pending changes. (`--check` without `--targets` is a usage error.)
 5. If the user said yes to the check, run the fastest detected check once (lint or typecheck, or the single-test form). Never run commands with side effects (deploy, publish, migrate, dev servers). If a command fails, fix it or drop it from AGENTS.md and say so.
-6. Print: the tree, line counts, hazards, any file the user must create by hand (with its content), and one check per tool written:
+6. Print: the tree, line counts, hazards, a `Files to create by hand` section (each file with its full content), and one check per tool written:
    - Claude Code: `/memory` shows AGENTS.md imported through CLAUDE.md. `/agents` lists explorer and test-runner. `/plan-task <task>` and `/handoff` appear in the `/` menu.
    - Gemini CLI: `/memory show` includes the AGENTS.md text.
    - Codex: ask it to summarize the instructions it loaded.

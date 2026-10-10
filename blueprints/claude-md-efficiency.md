@@ -5,7 +5,8 @@ A Claude-only section that sits under `@AGENTS.md` in CLAUDE.md. It holds token 
 ## When to write
 - Default with the pipeline. Skip with `--skip-pipeline` or `--minimal`.
 - If CLAUDE.md has Claude-only content, merge missing lines only.
-- Include a line only if its subject exists: drop the explorer line when explorer is not written, the test-runner line when test-runner is not written, the reviewer memory line when the reviewer has no `memory: project`.
+- Name explorer only when `.claude/agents/explorer.md` is written in this run or exists, and test-runner only when `.claude/agents/test-runner.md` is. The first skeleton bullet names both: keep only the part for an agent that is written, and drop the line when neither is. Name plan-task or handoff in no line unless `.claude/skills/plan-task/SKILL.md` or `.claude/skills/handoff/SKILL.md` is written or exists.
+- Include a line only if its subject exists: the reviewer memory line only when the reviewer has `memory: project`.
 
 ## Inputs
 - The confirmed plan: which agents and skills are being written.

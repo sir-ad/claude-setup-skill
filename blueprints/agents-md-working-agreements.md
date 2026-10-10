@@ -19,6 +19,7 @@ A short, tool-neutral section for AGENTS.md. Any agent can follow it: Claude Cod
 - The fix loop has a limit: at most 3 tries, then stop and report. Never "keep trying until it passes".
 - Verify lines use the exact commands from the Commands section. Do not invent new ones.
 - Plans go to `docs/plans/`. The handoff goes to `.claude/handoff.md`. Do not move them.
+- Name plan-task or handoff only when its skill file is written in this run or already exists: `.claude/skills/plan-task/SKILL.md`, `.claude/skills/handoff/SKILL.md`. Name explorer or test-runner only when `.claude/agents/explorer.md` or `.claude/agents/test-runner.md` is written or exists. Drop each skeleton line that names a missing one: the plan line without plan-task, and both `.claude/handoff.md` lines without handoff.
 
 ## Skeleton
 ```markdown

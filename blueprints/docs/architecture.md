@@ -18,7 +18,7 @@ A short architecture overview for agents and new contributors. Observed facts on
 - No invented components, no future plans, no marketing words, no history.
 - Do not draw a diagram. `docs/project-structure.md` holds the graph. Link to it.
 - Keep sections only when they have content. Cap: 100 lines.
-- External services: name, where it is configured, and the env var name (never a value).
+- External services: include a service only when code calls it or imports its SDK, and cite that `path:line` in "Used in". Put an env var name in "Config" only when code reads it (never a value). A variable that appears only in `.env.example` or docs does not establish a service.
 - Put a "Checked" line with today's date and the short commit sha, so a reader can judge staleness.
 - On `--update`, rewrite only facts that no longer match the code. Keep the user's prose.
 

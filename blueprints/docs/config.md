@@ -17,7 +17,9 @@ The names of environment variables, config files and CLI flags. Names only, neve
 ## Rules
 - Env var names only. Never a value, not even an example value or placeholder copied from the example file.
 - One row per name. Columns: name, required or optional, read in (`path:line`), what it controls. Take "what it controls" from a comment in the example file or from the code. Leave it blank if unknown. Do not guess.
-- Mark "required" only when the code fails without it (a startup check or no default). Otherwise "optional".
+- For each name, grep the code, excluding `.env*` files, docs and lockfiles. If code reads it, write `path:line` in "Read in". If only an example file lists it, write `listed in <file>; no code reads it` in "Read in".
+- Never infer an integration from a variable name. A name such as `TWITTER_API_KEY` alone does not mean the repo calls Twitter.
+- Mark "required" only when the code fails without it (a startup check or no default). A name that no code reads is never "required". Otherwise "optional".
 - Never record names that look like they hold a secret together with any hint of the value.
 - Config files: path, format, and which code loads it. CLI flags: only those defined in the repo.
 - Cap: 80 lines. If there are more than 40 variables, group by area.
