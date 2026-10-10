@@ -1,0 +1,142 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO = path.join(HERE, '..');
+
+// validate.mjs resolves its root from its own location, so each test runs a copy of the
+// validate-relevant files (everything package.json ships, plus package.json itself).
+const tmpDirs = [];
+function copyRepo() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'validate-test-'));
+  tmpDirs.push(dir);
+  const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
+  for (const item of ['package.json', 'scripts', ...pkg.files]) {
+    const from = path.join(REPO, item);
+    if (!fs.existsSync(from)) continue;
+    fs.cpSync(from, path.join(dir, item), { recursive: true });
+  }
+  return dir;
+}
+process.on('exit', () => {
+  for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+const validate = (dir) => {
+  const r = spawnSync(process.execPath, [path.join(dir, 'scripts', 'validate.mjs')], { encoding: 'utf8' });
+  return { code: r.status, out: r.stdout, err: r.stderr };
+};
+const edit = (dir, rel, fn) => {
+  const abs = path.join(dir, rel);
+  fs.writeFileSync(abs, fn(fs.readFileSync(abs, 'utf8')));
+};
+const failures = (out) => out.split('\n').filter((l) => l.startsWith('FAIL'));
+
+test('validate passes on the real repo', () => {
+  const r = spawnSync(process.execPath, [path.join(REPO, 'scripts', 'validate.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /validate: ok \(0 failure\(s\)/);
+});
+
+test('validate passes on an unmodified copy', () => {
+  const dir = copyRepo();
+  const r = validate(dir);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(failures(r.out), []);
+});
+
+test('a placeholder TODO in a template fails, with file and line', () => {
+  const dir = copyRepo();
+  edit(dir, 'templates/generic.md', (t) => `${t.trimEnd()}\n\nTODO: write this section\n`);
+  const r = validate(dir);
+  assert.equal(r.code, 1, r.out);
+  const lines = failures(r.out);
+  assert.equal(lines.length, 1, r.out);
+  assert.match(lines[0], /templates\/generic\.md:\d+: placeholder "TODO" found/);
+  assert.match(r.out, /validate: failed \(1 failure\(s\)/);
+});
+
+test('placeholder markers are caught in the other forms, and docs that describe the rule are not', () => {
+  const dir = copyRepo();
+  edit(dir, 'templates/python.md', (t) => `${t.trimEnd()}\n\nTBD\n<fill in the command>\nSee FIXME later.\n`);
+  const r = validate(dir);
+  assert.equal(r.code, 1);
+  assert.equal(failures(r.out).length, 3, r.out);
+
+  const ok = copyRepo();
+  edit(ok, 'templates/python.md', (t) => `${t.trimEnd()}\n\nNo placeholder TODOs may remain.\nWrite \`TODO\` markers nowhere.\n`);
+  assert.equal(validate(ok).code, 0);
+});
+
+test('a template named in SKILL.md that does not exist fails', () => {
+  const dir = copyRepo();
+  fs.rmSync(path.join(dir, 'templates', 'ruby.md'));
+  const r = validate(dir);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /FAIL\s+SKILL\.md template list names templates\/ruby\.md, which does not exist/);
+});
+
+test('a knowledge note named in SKILL.md that does not exist fails', () => {
+  const dir = copyRepo();
+  fs.rmSync(path.join(dir, 'knowledge', 'go.md'));
+  const r = validate(dir);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /FAIL\s+SKILL\.md knowledge list names knowledge\/go\.md, which does not exist/);
+});
+
+test('a runtime directory missing from package.json "files" fails', () => {
+  for (const item of ['templates', 'knowledge', 'scripts']) {
+    const dir = copyRepo();
+    edit(dir, 'package.json', (t) => {
+      const pkg = JSON.parse(t);
+      pkg.files = pkg.files.filter((f) => f !== item);
+      return JSON.stringify(pkg, null, 2);
+    });
+    const r = validate(dir);
+    assert.equal(r.code, 1, `${item}: ${r.out}`);
+    assert.match(r.out, new RegExp(`FAIL\\s+"${item}" is missing from package\\.json "files"`), item);
+  }
+});
+
+test('a runtime directory missing from the installer ITEMS fails', () => {
+  const dir = copyRepo();
+  edit(dir, 'bin/install.js', (t) => t.replace(/\n\s*'reference',/, ''));
+  const r = validate(dir);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /FAIL\s+"reference" is missing from bin\/install\.js ITEMS/);
+});
+
+test('broken SKILL.md frontmatter and a dangling skill-dir reference fail', () => {
+  const dir = copyRepo();
+  edit(dir, 'SKILL.md', (t) => `${t.trimEnd()}\n\nRead \${CLAUDE_SKILL_DIR}/reference/no-such-file.md first.\n`);
+  const r = validate(dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /SKILL\.md references \$\{CLAUDE_SKILL_DIR\}\/reference\/no-such-file\.md, which does not exist/);
+
+  const noFm = copyRepo();
+  edit(noFm, 'SKILL.md', (t) => t.replace(/^---[\s\S]*?\n---\n/, ''));
+  const r2 = validate(noFm);
+  assert.equal(r2.code, 1);
+  assert.match(r2.out, /SKILL\.md has no YAML frontmatter/);
+});
+
+test('an empty template and a template without a heading fail; an over-long one only warns', () => {
+  const dir = copyRepo();
+  fs.writeFileSync(path.join(dir, 'templates', 'php.md'), '');
+  edit(dir, 'templates/go.md', (t) => `intro without heading\n${t}`);
+  let r = validate(dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /FAIL\s+templates\/php\.md: file is empty/);
+  assert.match(r.out, /FAIL\s+templates\/go\.md: must start with a "# " heading/);
+
+  const long = copyRepo();
+  edit(long, 'templates/generic.md', (t) => `${t.trimEnd()}\n${'filler line\n'.repeat(320)}`);
+  r = validate(long);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /WARN\s+templates\/generic\.md: \d+ lines \(over 300\)/);
+});

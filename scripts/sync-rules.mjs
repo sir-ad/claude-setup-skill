@@ -178,10 +178,37 @@ function readIfExists(file) {
   try {
     return fs.readFileSync(file, 'utf8');
   } catch (err) {
-    if (err.code === 'ENOENT') return null;
+    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return null;
     throw err;
   }
 }
+
+// First path component of `rel` (under root) that exists but is not a directory, or null.
+function blockingFile(root, rel) {
+  let cur = root;
+  let shown = '';
+  for (const part of rel.split('/')) {
+    cur = path.join(cur, part);
+    shown = shown ? `${shown}/${part}` : part;
+    let st;
+    try {
+      st = fs.lstatSync(cur);
+    } catch {
+      return null;
+    }
+    if (st.isSymbolicLink()) {
+      try {
+        st = fs.statSync(cur);
+      } catch {
+        return null;
+      }
+    }
+    if (!st.isDirectory()) return shown;
+  }
+  return null;
+}
+
+const toLF = (s) => s.replace(/\r\n/g, '\n');
 
 // Generated files (marker present) in a target dir whose source rule no longer exists.
 function staleFiles(dir, ext, keep) {
@@ -193,7 +220,7 @@ function staleFiles(dir, ext, keep) {
   }
   return names
     .filter((n) => n.endsWith(ext) && !keep.has(n))
-    .filter((n) => MARKER_RE.test(readIfExists(path.join(dir, n)) || ''))
+    .filter((n) => MARKER_RE.test(toLF(readIfExists(path.join(dir, n)) || '')))
     .sort();
 }
 
@@ -209,6 +236,17 @@ export function syncRules({ dir = process.cwd(), targets, check = false, dryRun 
     const { dir: outDir, ext, render } = TARGETS[target];
     const keep = new Set();
     const seen = new Set();
+    const blocker = rules.length ? blockingFile(root, outDir) : null;
+    if (blocker) {
+      record(
+        'conflict',
+        target,
+        blocker === '.clinerules'
+          ? '.clinerules is a legacy file; move it into .clinerules/ or delete it'
+          : `${blocker} is a file, not a directory; left alone`,
+      );
+      continue;
+    }
     for (const { rel, name } of rules) {
       const file = `${outDir}/${name}${ext}`;
       if (seen.has(name)) {
@@ -220,7 +258,9 @@ export function syncRules({ dir = process.cwd(), targets, check = false, dryRun 
       const rule = parseRule(fs.readFileSync(path.join(root, RULES_DIR, rel), 'utf8'));
       const output = render(rule, rel.slice(0, -3), name);
       const abs = path.join(root, file);
-      const current = readIfExists(abs);
+      const raw = readIfExists(abs);
+      // CRLF and LF compare equal, so a mirror converted by core.autocrlf stays green.
+      const current = raw === null ? null : toLF(raw);
       if (current === null || MARKER_RE.test(current)) {
         if (current === output) {
           record('unchanged', target, file);
@@ -228,7 +268,7 @@ export function syncRules({ dir = process.cwd(), targets, check = false, dryRun 
           record('write', target, file);
           if (!readOnly) {
             fs.mkdirSync(path.dirname(abs), { recursive: true });
-            fs.writeFileSync(abs, output);
+            fs.writeFileSync(abs, output); // LF, whatever the source used
           }
         }
       } else {
