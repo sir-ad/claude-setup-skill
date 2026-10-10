@@ -1,0 +1,8 @@
+{
+  "name": "graph-ts-root",
+  "private": true,
+  "main": "src/index.ts",
+  "workspaces": ["packages/*"],
+  "scripts": { "start": "tsx src/index.ts" },
+  "dependencies": { "react": "^18.0.0", "@acme/ui": "*" }
+}
