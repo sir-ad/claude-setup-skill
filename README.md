@@ -205,8 +205,7 @@ From source, this removes the symlink. It doesn't touch this repo or the files g
 ## Headless / CI
 
 - `claude -p "/claude-setup --dry-run"` prints the plan and writes nothing.
-- For a run that writes files, use interactive mode. In some permission modes, Claude Code refuses writes under `.claude/`. The skill then prints the full content of each refused file in its report. Create those files by hand.
-- With `--permission-mode acceptEdits`, Claude Code refuses writes to `.claude/settings.json` and `.claude/rules/`. Expect them in the report, or run interactively.
+- For a run that writes files, use interactive mode. With `--permission-mode acceptEdits`, Claude Code refuses writes to `.claude/settings.json` and `.claude/rules/`. The skill then prints their full content in its report, so you can create them by hand.
 - If the skill cannot load its context because the skill directory is outside the allowed paths, pass `--add-dir ~/.claude/skills/claude-setup`.
 
 ## Contributing
