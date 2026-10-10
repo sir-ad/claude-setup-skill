@@ -17,8 +17,23 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://registry.npmjs.org
+
+      - name: Stop if this version is already on npm
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          PKG_NAME="$(node -p "require('./package.json').name")"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          EXISTING="$(npm view "$PKG_NAME@$PKG_VERSION" version 2>/dev/null || true)"
+          if [ -n "$EXISTING" ]; then
+            echo "::error::$PKG_NAME@$PKG_VERSION is already published on npm. Bump \"version\" in package.json before running this workflow again."
+            exit 1
+          fi
+          echo "$PKG_NAME@$PKG_VERSION is not on npm yet."
+
+      - name: Run repo checks
+        run: npm run check
 
       - name: Verify package contents
         run: npm pack --dry-run

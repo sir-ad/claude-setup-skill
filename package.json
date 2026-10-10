@@ -1,7 +1,7 @@
 {
   "name": "@claude-setup-skill/install",
-  "version": "0.1.0",
-  "description": "One-shot installer for the /claude-setup Claude Code skill — scaffolds context-aware .claude/ directories that earn their keep.",
+  "version": "0.2.0",
+  "description": "Sets up any repo for coding agents: AGENTS.md (real commands, hard rules, version notes) plus Claude Code, Codex, Cursor, Copilot, Gemini CLI and Aider config.",
   "bin": {
     "claude-setup-install": "./bin/install.js"
   },
@@ -32,7 +32,21 @@
     "config",
     "agent",
     "ai",
-    "developer-tools"
+    "developer-tools",
+    "agents-md",
+    "agents.md",
+    "claude-md",
+    "ai-coding-agents",
+    "coding-agent",
+    "codex",
+    "cursor",
+    "github-copilot",
+    "gemini-cli",
+    "aider",
+    "windsurf",
+    "cline",
+    "developer-experience",
+    "project-setup"
   ],
   "repository": {
     "type": "git",

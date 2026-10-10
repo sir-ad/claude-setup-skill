@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>claude-setup explorer</title>
+<meta name="description" content="Pick your stack and agents. See the files the /claude-setup skill writes and why.">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #1f1f1e;
+    --panel: #2a2a28;
+    --panel-2: #252523;
+    --fg: #f2efe6;
+    --muted: #aca89c;
+    --line: #3d3d3a;
+    --accent: #cc785c;
+    --accent-text: #e8a88f;
+    --accent-soft: rgba(204, 120, 92, 0.18);
+    --code-bg: #171716;
+    --focus: #e8a88f;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #faf9f5;
+      --panel: #ffffff;
+      --panel-2: #f4f2ec;
+      --fg: #1f1f1e;
+      --muted: #5f5d56;
+      --line: #dcd7ca;
+      --accent: #cc785c;
+      --accent-text: #9e4b2e;
+      --accent-soft: rgba(204, 120, 92, 0.14);
+      --code-bg: #f1eee6;
+      --focus: #9e4b2e;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px 16px 40px;
+  }
+  header h1 {
+    font-size: clamp(1.6rem, 4vw, 2.1rem);
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+  }
+  header h1::after {
+    content: "";
+    display: block;
+    width: 48px;
+    height: 3px;
+    margin-top: 10px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+  .intro { margin: 14px 0 24px; color: var(--muted); }
+
+  .grid { display: grid; gap: 16px; }
+  .grid > * { min-width: 0; }
+  @media (min-width: 900px) {
+    .grid { grid-template-columns: 300px minmax(0, 1fr); gap: 24px; align-items: start; }
+    .controls { position: sticky; top: 16px; }
+  }
+  .output { display: grid; gap: 16px; min-width: 0; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+    min-width: 0;
+  }
+  h2 {
+    font-size: 0.8rem;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  h3 { font-size: 0.95rem; margin: 18px 0 8px; font-weight: 600; }
+
+  fieldset { border: 0; margin: 0 0 16px; padding: 0; min-width: 0; }
+  legend { font-weight: 600; font-size: 0.95rem; padding: 0; margin: 0 0 6px; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; }
+  select {
+    width: 100%;
+    font: inherit;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+    min-height: 40px;
+  }
+  .check {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 5px 0;
+    cursor: pointer;
+  }
+  .check input {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    margin: 3px 0 0;
+    accent-color: var(--accent);
+  }
+  .check input:disabled { opacity: 0.55; cursor: not-allowed; }
+  .check input:disabled ~ span { opacity: 0.7; }
+  .check > span { min-width: 0; overflow-wrap: anywhere; }
+  .check input:disabled ~ span { cursor: not-allowed; }
+  .hint {
+    display: block;
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+  .group > .hint { margin: 2px 0 0; }
+  .check input:disabled + span .hint, .check input:disabled ~ span .hint { color: var(--muted); }
+
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+
+  .cmd-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+  .code {
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--fg);
+  }
+  .cmd-row .code { flex: 1 1 220px; min-width: 0; font-size: 15px; }
+  .copy {
+    font: inherit;
+    font-weight: 600;
+    color: var(--fg);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 16px;
+    min-height: 44px;
+    cursor: pointer;
+  }
+  .copy:hover { border-color: var(--accent); color: var(--accent-text); }
+  .status { min-height: 1.4em; margin: 8px 0 0; color: var(--muted); font-size: 0.9rem; }
+  .note { margin: 10px 0 0; color: var(--muted); font-size: 0.9rem; }
+  .note[hidden], .status:empty { display: none; }
+
+  .meta { color: var(--muted); font-size: 0.9rem; margin: 0 0 10px; overflow-wrap: anywhere; }
+  .tree, .tree ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  .tree ul { margin-left: 6px; padding-left: 14px; border-left: 1px dashed var(--line); }
+  .tree li { margin: 2px 0; min-width: 0; }
+  .tree li.file { padding: 4px 0 6px; }
+  .dirname { display: block; color: var(--muted); padding: 6px 0 2px; }
+  .tree button.file {
+    display: inline-block;
+    max-width: 100%;
+    font: inherit;
+    text-align: left;
+    color: var(--fg);
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    padding: 3px 8px;
+    margin-left: -8px;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+  .tree button.file:hover { background: var(--panel-2); }
+  .tree button.file[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
+  .tree .why {
+    display: block;
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--muted);
+    padding: 0 0 0 0;
+    overflow-wrap: anywhere;
+  }
+  .counter { margin: 14px 0 0; font-weight: 600; font-size: 0.95rem; }
+  .plain { list-style: none; margin: 0; padding: 0; }
+  .plain li { padding: 4px 0; font-size: 0.95rem; color: var(--fg); }
+  .plain li span { color: var(--muted); }
+
+  .preview-title { font: 600 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0 0 4px; overflow-wrap: anywhere; color: var(--accent-text); }
+  .preview { max-height: 460px; overflow: auto; font-size: 13px; }
+
+  footer.foot {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.92rem;
+    display: grid;
+    gap: 6px;
+  }
+  footer.foot a { color: var(--accent-text); overflow-wrap: anywhere; }
+  footer.foot code {
+    font: 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--fg);
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 1px 6px;
+    overflow-wrap: anywhere;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>claude-setup explorer</h1>
+    <p class="intro">Pick your stack and agents. See the files the skill writes and why.</p>
+  </header>
+
+  <div class="grid">
+    <section class="panel controls" aria-labelledby="opts-h">
+      <h2 id="opts-h">Options</h2>
+      <noscript><p class="note">This page needs JavaScript to update the output.</p></noscript>
+      <div id="controls">
+        <div class="field">
+          <label for="stack">Stack</label>
+          <select id="stack" name="stack">
+            <option value="node">node</option>
+            <option value="python">python</option>
+            <option value="go">go</option>
+            <option value="rust">rust</option>
+            <option value="jvm">jvm</option>
+            <option value="ruby">ruby</option>
+            <option value="dotnet">dotnet</option>
+            <option value="php">php</option>
+            <option value="other">other</option>
+          </select>
+        </div>
+
+        <fieldset class="group">
+          <legend>Layout</legend>
+          <label class="check"><input type="radio" name="layout" value="single" checked><span>single project</span></label>
+          <label class="check"><input type="radio" name="layout" value="monorepo"><span>monorepo</span></label>
+          <p class="hint" id="layout-hint"></p>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Agents</legend>
+          <label class="check"><input type="checkbox" checked disabled><span>Claude Code <span class="hint">always on</span></span></label>
+          <label class="check"><input type="checkbox" id="agent-codex"><span>Codex</span></label>
+          <label class="check"><input type="checkbox" id="agent-cursor" checked><span>Cursor</span></label>
+          <label class="check"><input type="checkbox" id="agent-copilot"><span>Copilot</span></label>
+          <label class="check"><input type="checkbox" id="agent-gemini" checked><span>Gemini CLI</span></label>
+          <label class="check"><input type="checkbox" id="agent-aider"><span>Aider</span></label>
+          <label class="check"><input type="checkbox" id="agent-cline"><span>Cline</span></label>
+          <label class="check"><input type="checkbox" id="agent-windsurf"><span>Windsurf</span></label>
+          <label class="check"><input type="checkbox" id="agent-zed"><span>Zed</span></label>
+          <label class="check"><input type="checkbox" id="agent-junie"><span>Junie</span></label>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Repo</legend>
+          <label class="check"><input type="checkbox" id="t-conventions" role="switch" checked><span>Repo has folder-specific conventions <span class="hint">Writes .claude/rules and mirrors for the tools you pick.</span></span></label>
+          <label class="check"><input type="checkbox" id="t-release" role="switch" checked><span>Repo has a version file + changelog <span class="hint">Writes the release skill.</span></span></label>
+          <label class="check"><input type="checkbox" id="t-env" role="switch"><span>Repo has gitignored .env files <span class="hint">Writes .worktreeinclude.</span></span></label>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Flags</legend>
+          <label class="check"><input type="checkbox" id="f-minimal"><span>--minimal <span class="hint">Only AGENTS.md, CLAUDE.md and settings. Adapters for picked agents stay.</span></span></label>
+          <label class="check"><input type="checkbox" id="f-skip"><span>--skip-skills <span class="hint">Leaves out .claude/skills.</span></span></label>
+        </fieldset>
+      </div>
+    </section>
+
+    <div class="output">
+      <section class="panel" aria-labelledby="run-h">
+        <h2 id="run-h">Command</h2>
+        <div class="cmd-row">
+          <pre class="code" id="cmd"></pre>
+          <button type="button" class="copy" id="copy">Copy</button>
+        </div>
+        <p class="status" id="copy-status" role="status" aria-live="polite"></p>
+        <p class="note" id="note-flags" hidden></p>
+        <p class="note" id="note-agents" hidden></p>
+      </section>
+
+      <section class="panel" aria-labelledby="files-h">
+        <h2 id="files-h">Files written</h2>
+        <p class="meta" id="tpl"></p>
+        <p class="meta">What the skill writes for these choices. A real run checks your repo first.</p>
+        <ul class="tree" id="tree"></ul>
+        <p class="counter" id="counter"></p>
+        <h3>Reads AGENTS.md directly</h3>
+        <ul class="plain" id="reads"></ul>
+      </section>
+
+      <section class="panel" aria-labelledby="prev-h">
+        <h2 id="prev-h">Preview</h2>
+        <p class="preview-title" id="prev-title"></p>
+        <p class="meta" id="prev-why"></p>
+        <pre class="code preview" id="preview" tabindex="0"></pre>
+        <p class="meta">Samples are shortened. Commands are examples for the chosen stack.</p>
+      </section>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <p>Repo: <a href="https://github.com/sir-ad/claude-setup-skill">https://github.com/sir-ad/claude-setup-skill</a></p>
+    <p>Install: <code>npx -y @claude-setup-skill/install</code></p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var SCHEMA = 'https://json.schemastore.org/claude-code-settings.json';
+  var DENY_BASE = ['Bash(rm -rf *)', 'Bash(git push --force *)', 'Bash(git push -f *)', 'Bash(git reset --hard *)'];
+  var ENV_DENY = ['Read(./.env)', 'Read(./.env.*)', 'Read(./**/*.pem)', 'Read(./secrets/**)'];
+  var GIT_ALLOW = ['Bash(git add *)', 'Bash(git commit *)'];
+  var AGENT_ORDER = ['codex', 'cursor', 'copilot', 'gemini', 'aider', 'cline', 'windsurf', 'zed', 'junie'];
+  var AGENT_NAME = { codex: 'Codex', cursor: 'Cursor', copilot: 'Copilot', gemini: 'Gemini CLI', aider: 'Aider', cline: 'Cline', windsurf: 'Windsurf', zed: 'Zed', junie: 'Junie' };
+  var FLAG_AGENTS = ['codex', 'cursor', 'copilot', 'gemini', 'aider', 'cline', 'windsurf'];
+  var MIRROR_AGENTS = ['cursor', 'copilot', 'cline', 'windsurf'];
+  var READS_ONLY = ['codex', 'zed', 'junie'];
+
+  var STACKS = {
+    node: {
+      label: 'node', tpl: 'node-single', summary: 'TypeScript on Node, pnpm.',
+      commands: [['Install', 'pnpm install'], ['Test', 'pnpm test'], ['Lint', 'pnpm lint'], ['Typecheck', 'pnpm typecheck'], ['Build', 'pnpm build']],
+      repoMap: ['src/  application code', 'tests/  test files'],
+      hard: '"Packages must not import from apps." (README.md:5)',
+      version: 'Node >= 22.18: type stripping is on, so node file.ts runs erasable TypeScript.',
+      boundaries: ['Never hand-edit pnpm-lock.yaml. Change it with pnpm.', 'Do not edit dist/ or .next/.', 'Never read or write .env* files.'],
+      allow: ['Bash(pnpm install)', 'Bash(pnpm run *)'], ask: [], deny: ['Bash(pnpm publish *)'],
+      reviewer: { name: 'ts-reviewer', desc: 'Reviews TypeScript and JavaScript changes for type safety, async mistakes and framework boundary errors. Use after editing source files.', checks: [
+        'If the lint config bans any or @ts-ignore, flag new uses in changed lines.',
+        'If the lint config enables a floating-promise rule, flag violations it would catch.',
+        'If the repo validates input with a schema library, flag request bodies that skip it.',
+        'Secrets and server-only values are not referenced from client-bundled code.',
+        'Tests: no .only. Skipped tests need a reason.'] },
+      rule: { name: 'api', desc: 'API route conventions', paths: ['src/routes/**'], body: ['Route handlers validate input with the schema library before use.', 'Handlers call the service layer, not the database client.'] },
+      release: { versionFile: 'package.json', test: 'pnpm test', build: 'pnpm build' },
+      mono: {
+        tpl: 'node-monorepo', summary: 'TypeScript monorepo on Node, pnpm and turbo.',
+        commands: [['Install', 'pnpm install'], ['Test all', 'pnpm turbo run test'], ['Test one package', 'pnpm --filter web run test'], ['Build', 'pnpm turbo run build']],
+        repoMap: ['apps/  deployable apps', 'packages/  shared libraries'],
+        reviewer: { name: 'ts-reviewer', desc: 'Reviews TypeScript and JavaScript changes in this monorepo for type safety, workspace boundary violations and async mistakes. Use after editing source files.', checks: [
+          'Cross-workspace imports go through the package name, only when the repo documents that rule.',
+          'A new dependency used by one package is declared in that package.json.',
+          'If the lint config bans any or @ts-ignore, flag new uses in changed lines.',
+          'If the lint config enables a floating-promise rule, flag violations it would catch.',
+          'Tests: no .only. Skipped tests need a reason.'] },
+        rule: { name: 'web', desc: 'Web app conventions', paths: ['apps/web/**'], body: ['Server Components for reads. Server Actions for writes.', 'Client code does not import server-only modules.'] },
+        release: { versionFile: 'package.json', test: 'pnpm turbo run test', build: 'pnpm turbo run build' }
+      }
+    },
+    python: {
+      label: 'python', tpl: 'python', summary: 'Python project managed with uv.',
+      commands: [['Install', 'uv sync'], ['Test', 'uv run pytest'], ['Lint', 'uv run ruff check .'], ['Format check', 'uv run ruff format --check .'], ['Typecheck', 'uv run mypy src']],
+      repoMap: ['src/<package>/  package code', 'tests/  pytest suite, fixtures in conftest.py'],
+      hard: '"Applied migrations are never edited." (docs/db.md:12)',
+      version: 'Python >= 3.14: annotations are evaluated lazily. Do not add from __future__ import annotations.',
+      boundaries: ['uv.lock changes through uv only.', 'Do not edit generated protobuf or OpenAPI output.', 'Never read or write .env* files.'],
+      allow: ['Bash(uv sync *)', 'Bash(uv run pytest *)', 'Bash(uv run ruff *)', 'Bash(uv run mypy *)'], ask: [], deny: [],
+      reviewer: { name: 'python-reviewer', desc: 'Reviews Python changes for typing gaps, async mistakes, error handling and unsafe data access. Use after editing .py files.', checks: [
+        'Public functions have parameter and return annotations when the project is typed.',
+        'Bare except: is flagged only when the lint config enables a rule for it.',
+        'No blocking calls such as time.sleep or requests inside async def.',
+        'SQL built with f-strings or % formatting. Raw queries must be parameterized.',
+        'Tests: no assert True filler.'] },
+      rule: { name: 'migrations', desc: 'Migration rules', paths: ['**/migrations/**'], body: ['Create migrations with the framework command. Never edit an applied one.', 'Review the generated file before applying it.'] },
+      release: { versionFile: 'pyproject.toml', test: 'uv run pytest', build: 'uv build' }
+    },
+    go: {
+      label: 'go', tpl: 'go', summary: 'Go module, standard toolchain.',
+      commands: [['Build', 'go build ./...'], ['Test', 'go test ./...'], ['Vet', 'go vet ./...'], ['Format check', 'gofmt -l .']],
+      repoMap: ['cmd/<name>/  one directory per binary', 'internal/  packages that are not for import'],
+      hard: '"Handlers do not import storage packages." (docs/adr/0002.md:8)',
+      version: 'go.mod go line >= 1.22: loop variables are per iteration. Drop v := v before closures.',
+      boundaries: ['Do not edit *.pb.go or sqlc output. Change the source and regenerate.', 'Do not edit go.sum by hand.', 'Never read or write .env* files.'],
+      allow: ['Bash(go build *)', 'Bash(go test *)', 'Bash(go vet *)', 'Bash(go mod tidy)', 'Bash(gofmt *)'], ask: ['Bash(go generate *)'], deny: ['Read(./**/*.key)'],
+      reviewer: { name: 'go-reviewer', desc: 'Reviews Go changes for ignored errors, goroutine leaks, data races and context misuse. Use after editing .go files.', checks: [
+        'Every returned error is checked. Wrap with fmt.Errorf("...: %w", err).',
+        'Each goroutine has a stop condition: context cancel, closed channel or WaitGroup.',
+        'Shared state is guarded. Locks are released with defer.',
+        'context.Context is the first parameter and is not stored in a struct.',
+        'Tests: no time.Sleep for synchronization.'] },
+      rule: { name: 'internal', desc: 'Layering rules', paths: ['internal/**'], body: ['Handlers reach storage through the service package.', 'Services return typed errors.'] },
+      release: { versionFile: null, test: 'go test ./...', build: 'go build ./...' }
+    },
+    rust: {
+      label: 'rust', tpl: 'rust-single', summary: 'Rust crate, edition 2024.',
+      commands: [['Build', 'cargo build'], ['Test', 'cargo test'], ['Lint', 'cargo clippy --all-targets'], ['Format check', 'cargo fmt --check']],
+      repoMap: ['src/  crate source', 'tests/  integration tests'],
+      hard: '"Public errors are typed, not String." (README.md:21)',
+      version: 'edition = "2024": wrap unsafe operations in an inner unsafe block, even inside unsafe fn.',
+      boundaries: ['Cargo.lock changes through cargo only.', 'Do not edit target/.', 'Never read or write .env* files.'],
+      allow: ['Bash(cargo build *)', 'Bash(cargo test *)', 'Bash(cargo check *)', 'Bash(cargo clippy *)', 'Bash(cargo fmt *)', 'Bash(cargo doc *)'],
+      ask: ['Bash(cargo add *)', 'Bash(cargo install *)'], deny: ['Bash(cargo publish *)', 'Bash(cargo yank *)'],
+      reviewer: { name: 'rust-reviewer', desc: 'Reviews Rust changes for panics, unsafe without justification, async mistakes and API breaks. Use after editing .rs files.', checks: [
+        'No unwrap() or expect() in library code or request handlers.',
+        'Every unsafe block has a // SAFETY: comment that states the invariant.',
+        'No blocking calls such as std::fs on the async runtime.',
+        'No std::sync::Mutex guard held across .await.',
+        'Tests: no #[ignore] without a reason.'] },
+      rule: { name: 'core', desc: 'Library crate rules', paths: ['src/**/*.rs'], body: ['Library code returns typed errors.', 'No unwrap() or expect() outside tests.'] },
+      release: { versionFile: 'Cargo.toml', test: 'cargo test', build: 'cargo build' },
+      mono: {
+        tpl: 'rust-workspace', summary: 'Rust workspace, edition 2024.',
+        hard: '"The core crate stays synchronous." (README.md:21)',
+        commands: [['Build', 'cargo build --workspace'], ['Test all', 'cargo test --workspace'], ['Test one crate', 'cargo test -p core'], ['Lint', 'cargo clippy --workspace --all-targets']],
+        repoMap: ['crates/core/  library, no async runtime', 'crates/api/  binary that serves the library'],
+        reviewer: { name: 'rust-reviewer', desc: 'Reviews Rust changes for panics in library code, unsafe without justification, async mistakes and API breaks. Use after editing .rs files.', checks: [
+          'No unwrap() or expect() in library code paths or request handlers.',
+          'Every unsafe block has a // SAFETY: comment that states the invariant.',
+          'Sync-only crates do not gain async fn or a runtime dependency.',
+          'Dependencies are added to [workspace.dependencies] and inherited.',
+          'Tests: no #[ignore] without a reason.'] },
+        rule: { name: 'core', desc: 'Core crate rules', paths: ['crates/core/src/**/*.rs'], body: ['The core crate stays synchronous. No async fn and no runtime dependency.', 'No unwrap() or expect() outside tests.'] },
+        release: { versionFile: 'Cargo.toml', test: 'cargo test --workspace', build: 'cargo build --workspace' }
+      }
+    },
+    jvm: {
+      label: 'jvm', tpl: 'jvm', summary: 'Spring Boot service on Java, Maven wrapper.',
+      commands: [['Build', './mvnw package'], ['Test', './mvnw test'], ['Verify', './mvnw verify']],
+      repoMap: ['src/main/java/  application code', 'src/test/java/  tests'],
+      hard: '"Controllers return DTOs, not entities." (docs/architecture.md:20)',
+      version: 'Java >= 21: virtual threads are final. Use Thread.ofVirtual() for blocking work.',
+      boundaries: ['Never edit generated sources under target/.', 'Never commit secrets or keystores.', 'Never read or write .env* files.'],
+      allow: ['Bash(./mvnw test *)', 'Bash(./mvnw verify *)', 'Bash(./mvnw compile *)', 'Bash(./mvnw package *)'], ask: [],
+      deny: ['Bash(./mvnw deploy*)', 'Bash(./mvnw release*)', 'Read(./**/*.jks)', 'Read(./**/*.p12)', 'Read(~/.m2/settings.xml)'],
+      reviewer: { name: 'jvm-reviewer', desc: 'Reviews Java and Kotlin changes for null handling, transaction and persistence mistakes, resource leaks and Spring wiring errors. Use after editing .java or .kt files.', checks: [
+        'Resources are closed with try-with-resources or use {}.',
+        '@Transactional on a private method, or called from the same class, does nothing.',
+        'Query strings built by concatenation. Request bodies bound without @Valid.',
+        'catch (Exception) that swallows the error.',
+        'Tests: no @Disabled without a reason.'] },
+      rule: { name: 'api', desc: 'Controller rules', paths: ['src/main/java/**/controller/**'], body: ['Controllers take DTOs and call a service.', 'Transaction boundaries sit on the service layer.'] },
+      release: { versionFile: 'pom.xml', test: './mvnw test', build: './mvnw package' }
+    },
+    ruby: {
+      label: 'ruby', tpl: 'ruby', summary: 'Rails app on Ruby, Bundler.',
+      commands: [['Install', 'bundle install'], ['Test', 'bundle exec rspec'], ['Lint', 'bin/rubocop']],
+      repoMap: ['app/models/  ActiveRecord models', 'spec/  RSpec tests'],
+      hard: '"Jobs take ids, not objects." (docs/jobs.md:4)',
+      version: 'Ruby >= 4.0: Set is a core class. Do not write require "set".',
+      boundaries: ['Applied migrations are never edited. Add a new one.', 'Never read config/master.key or .env* files.'],
+      allow: ['Bash(bundle install)', 'Bash(bundle exec rspec *)', 'Bash(bin/rails test *)', 'Bash(bin/rails db:migrate)', 'Bash(bin/rubocop *)'],
+      ask: ['Bash(bin/rails console*)'], deny: ['Bash(gem push *)', 'Bash(bin/rails db:drop*)', 'Bash(bin/rails db:reset*)', 'Read(./config/master.key)', 'Read(~/.gem/credentials)'],
+      reviewer: { name: 'ruby-reviewer', desc: 'Reviews Ruby and Rails changes for unsafe queries, mass assignment, N+1 queries, unsafe migrations and swallowed errors. Use after editing .rb or .erb files.', checks: [
+        'Strong parameters on every action that writes. No params.permit!.',
+        'SQL built with string interpolation in where, order or execute. Use bind parameters.',
+        'Loops over associations without includes, preload or eager_load.',
+        'html_safe or raw on user input in views.',
+        'Left-over binding.irb, debugger or focus: true in specs.'] },
+      rule: { name: 'migrations', desc: 'Migration rules', paths: ['db/migrate/**'], body: ['Migrations are reversible: change, or both up and down.', 'Applied migrations are never edited.'] },
+      release: { versionFile: null, test: 'bundle exec rspec', build: null }
+    },
+    dotnet: {
+      label: 'dotnet', tpl: 'dotnet', summary: '.NET service, C#.',
+      commands: [['Restore', 'dotnet restore'], ['Build', 'dotnet build'], ['Test', 'dotnet test'], ['Format check', 'dotnet format --verify-no-changes']],
+      repoMap: ['src/  projects', 'tests/  test projects'],
+      hard: '"Endpoints never return entities." (docs/api.md:9)',
+      version: '.NET 8 or 9: both reach EOL on 2026-11-10. For new projects target net10.0.',
+      boundaries: ['Do not edit obj/ or bin/.', 'Secrets go in user-secrets or the environment, never in the repo.', 'Never read or write .env* or secrets.json files.'],
+      allow: ['Bash(dotnet restore *)', 'Bash(dotnet build *)', 'Bash(dotnet test *)', 'Bash(dotnet format *)'],
+      ask: ['Bash(dotnet run *)', 'Bash(dotnet ef database update*)'],
+      deny: ['Bash(dotnet nuget push *)', 'Bash(dotnet nuget delete *)', 'Bash(dotnet ef database drop*)', 'Read(./**/secrets.json)', 'Read(./**/*.pfx)'],
+      reviewer: { name: 'dotnet-reviewer', desc: 'Reviews C# changes for async misuse, disposal bugs, EF Core query mistakes and DI lifetime errors. Use after editing .cs files.', checks: [
+        'No .Result, .Wait() or GetAwaiter().GetResult() on request paths.',
+        'IDisposable is disposed with using or await using.',
+        'Read-only EF Core queries use AsNoTracking().',
+        'A scoped service is not captured by a singleton.',
+        'throw ex; loses the stack. Use throw;'] },
+      rule: { name: 'data', desc: 'Data access rules', paths: ['src/**/Data/**'], body: ['DbContext is scoped.', 'Read-only queries use AsNoTracking().'] },
+      release: { versionFile: 'the Version property in the .csproj', test: 'dotnet test', build: 'dotnet build' }
+    },
+    php: {
+      label: 'php', tpl: 'php', summary: 'Laravel app on PHP, Composer.',
+      commands: [['Install', 'composer install'], ['Test', 'composer run test'], ['Static analysis', 'vendor/bin/phpstan analyse'], ['Format check', 'vendor/bin/pint --test']],
+      repoMap: ['app/  application code', 'routes/  HTTP routes', 'tests/  Pest tests'],
+      hard: '"Only validated data reaches create()." (README.md:40)',
+      version: 'PHP >= 8.4: implicitly nullable parameter types are deprecated. Write ?Foo $x = null.',
+      boundaries: ['Do not edit vendor/.', 'Never read auth.json or .env* files.'],
+      allow: ['Bash(composer install)', 'Bash(composer run test*)', 'Bash(vendor/bin/pest *)', 'Bash(vendor/bin/phpstan *)', 'Bash(vendor/bin/pint *)', 'Bash(php artisan test *)'],
+      ask: ['Bash(php artisan migrate)', 'Bash(composer require *)'],
+      deny: ['Bash(php artisan migrate:fresh*)', 'Bash(php artisan db:wipe*)', 'Read(./auth.json)', 'Read(~/.config/composer/auth.json)'],
+      reviewer: { name: 'php-reviewer', desc: 'Reviews PHP changes for injection risks, mass assignment, N+1 queries, missing authorization and loose typing. Use after editing .php files.', checks: [
+        'SQL built by concatenation or interpolation, including DB::raw and whereRaw.',
+        'Mass assignment: $guarded = [] or create($request->all()).',
+        'Relations accessed in loops without with().',
+        'New routes and actions have a policy, gate or middleware check.',
+        'Left-over dd(), dump() or var_dump().'] },
+      rule: { name: 'controllers', desc: 'Controller rules', paths: ['app/Http/Controllers/**'], body: ['Validate input with a form request.', 'Each action has a policy, gate or middleware check.'] },
+      release: { versionFile: null, test: 'composer run test', build: null }
+    },
+    other: {
+      label: 'other', tpl: 'generic', summary: 'Stack not recognized. Commands come from the Makefile.',
+      commands: [['Test', 'make test'], ['Lint', 'make lint']],
+      repoMap: ['scripts/  helper scripts', 'docs/  project docs'],
+      hard: '"Generated bundles are never committed." (README.md:17)',
+      version: null,
+      boundaries: ['Do not edit files under dist/.', 'Never read or write .env* files.'],
+      allow: ['Bash(make test)'], ask: [], deny: [],
+      reviewer: null,
+      rule: { name: 'infra', desc: 'Infrastructure rules', paths: ['infra/**'], body: ['Keep modules pinned to a version.', 'Run the plan step and read it before any apply.'] },
+      release: { versionFile: 'VERSION', test: 'make test', build: null }
+    }
+  };
+
+  var PREVIEW_NOTE = 'Samples are shortened. Commands are examples for the chosen stack.';
+
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function mirrorPath(a, name) {
+    if (a === 'cursor') return '.cursor/rules/' + name + '.mdc';
+    if (a === 'copilot') return '.github/instructions/' + name + '.instructions.md';
+    if (a === 'cline') return '.clinerules/' + name + '.md';
+    return '.windsurf/rules/' + name + '.md';
+  }
+
+  function resolve(key, mono) {
+    var base = STACKS[key];
+    var out = {};
+    Object.keys(base).forEach(function (k) { if (k !== 'mono') out[k] = base[k]; });
+    if (mono && base.mono) Object.keys(base.mono).forEach(function (k) { out[k] = base.mono[k]; });
+    return out;
+  }
+
+  function readState() {
+    var checked = document.querySelector('input[name="layout"]:checked');
+    var s = {
+      stack: $('stack').value,
+      layout: checked ? checked.value : 'single',
+      agents: AGENT_ORDER.filter(function (a) { return $('agent-' + a).checked; }),
+      conventions: $('t-conventions').checked,
+      release: $('t-release').checked,
+      env: $('t-env').checked,
+      minimal: $('f-minimal').checked,
+      skipSkills: $('f-skip').checked
+    };
+    s.mono = s.layout === 'monorepo' && (s.stack === 'node' || s.stack === 'rust');
+    return s;
+  }
+
+  function has(s, a) { return s.agents.indexOf(a) !== -1; }
+
+  function buildItems(s, c) {
+    var conv = s.conventions && !s.minimal;
+    var rel = s.release && !s.minimal && !s.skipSkills;
+    var items = [];
+    function add(path, why, id) {
+      items.push({ path: path, why: why, id: id, name: path.split('/').pop() });
+    }
+    add('AGENTS.md', 'Shared source of truth: commands, hard rules, version notes and boundaries. Most agents read it.', 'agents');
+    add('CLAUDE.md', 'One import line. Claude Code reads AGENTS.md through it.', 'claude');
+    add('.claude/settings.json', 'Scoped permissions. Denies rm -rf, force pushes and secret files.', 'settings');
+    if (!s.minimal) {
+      if (c.reviewer) add('.claude/agents/' + c.reviewer.name + '.md', 'Read-only review checks for this stack. Tools: Read, Grep, Glob.', 'reviewer');
+      if (conv) add('.claude/rules/' + c.rule.name + '.md', 'Conventions for one directory. paths: limits when it loads.', 'rule');
+      if (rel) add('.claude/skills/release/SKILL.md', "Release steps that match this repo's version file and changelog. Manual only.", 'release');
+      if (s.env) add('.worktreeinclude', 'Lets new git worktrees get your gitignored .env files.', 'worktree');
+      add('.gitignore', 'Appends three local-only paths. Append only.', 'gitignore');
+    }
+    if (has(s, 'gemini')) add('.gemini/settings.json', 'Gemini CLI reads AGENTS.md next to GEMINI.md.', 'gemini');
+    if (has(s, 'aider')) add('.aider.conf.yml', 'Aider loads AGENTS.md as read-only context.', 'aider');
+    if (conv) {
+      MIRROR_AGENTS.forEach(function (a) {
+        if (has(s, a)) add(mirrorPath(a, c.rule.name), 'Same rule in ' + AGENT_NAME[a] + ' format, with its glob. Edit the source in .claude/rules instead.', a);
+      });
+    }
+    return items;
+  }
+
+  function readsList(s) {
+    var conv = s.conventions && !s.minimal;
+    return AGENT_ORDER.filter(function (a) {
+      if (!has(s, a)) return false;
+      if (READS_ONLY.indexOf(a) !== -1) return true;
+      if (MIRROR_AGENTS.indexOf(a) !== -1) return !conv;
+      return false;
+    });
+  }
+
+  function commandText(s) {
+    var list = ['claude'].concat(s.agents.filter(function (a) { return FLAG_AGENTS.indexOf(a) !== -1; }));
+    var cmd = '/claude-setup --agents=' + list.join(',');
+    if (s.minimal) cmd += ' --minimal';
+    if (s.skipSkills) cmd += ' --skip-skills';
+    return cmd;
+  }
+
+  function settingsObj(c) {
+    return {
+      '$schema': SCHEMA,
+      permissions: {
+        allow: c.allow.concat(GIT_ALLOW),
+        ask: ['Bash(git push *)'].concat(c.ask),
+        deny: DENY_BASE.concat(c.deny, ENV_DENY)
+      }
+    };
+  }
+
+  function agentsText(c) {
+    var out = [c.summary, '', '## Commands'];
+    c.commands.forEach(function (x) { out.push('- ' + x[0] + ': `' + x[1] + '`'); });
+    out.push('', '## Repo map');
+    c.repoMap.forEach(function (x) { out.push('- ' + x); });
+    out.push('', '## Hard rules', '- ' + c.hard);
+    if (c.version) out.push('', '## Version notes', '- ' + c.version);
+    out.push('', '## Boundaries');
+    c.boundaries.forEach(function (x) { out.push('- ' + x); });
+    return out.join('\n');
+  }
+
+  function reviewerText(c) {
+    var r = c.reviewer;
+    var out = ['---', 'name: ' + r.name, 'description: ' + r.desc, 'tools: Read, Grep, Glob', '---', ''];
+    r.checks.forEach(function (x, i) { out.push((i + 1) + '. ' + x); });
+    return out.join('\n');
+  }
+
+  function ruleText(c) {
+    var r = c.rule;
+    var out = ['---', 'paths:'];
+    r.paths.forEach(function (p) { out.push('  - "' + p + '"'); });
+    out.push('---');
+    r.body.forEach(function (x) { out.push('- ' + x); });
+    return out.join('\n');
+  }
+
+  function mirrorText(kind, c) {
+    var r = c.rule;
+    var globs = r.paths.join(',');
+    var marker = '<!-- generated by claude-setup from .claude/rules/' + r.name + '.md; edit the source and re-run sync-rules -->';
+    var body = r.body.map(function (x) { return '- ' + x; });
+    if (kind === 'cursor') return ['---', 'description: ' + r.desc, 'globs: ' + globs, 'alwaysApply: false', '---', marker].concat(body).join('\n');
+    if (kind === 'copilot') return ['---', 'applyTo: "' + globs + '"', '---', marker].concat(body).join('\n');
+    if (kind === 'cline') {
+      var lines = ['---', 'paths:'];
+      r.paths.forEach(function (p) { lines.push('  - "' + p + '"'); });
+      lines.push('---', marker);
+      return lines.concat(body).join('\n');
+    }
+    return ['---', 'trigger: glob', 'globs: ' + globs, '---', marker].concat(body).join('\n');
+  }
+
+  function releaseText(c) {
+    var r = c.release;
+    var steps = ['Run `' + r.test + '`.'];
+    if (r.build) steps.push('Run `' + r.build + '`.');
+    if (r.versionFile) {
+      steps.push('Set the version in ' + r.versionFile + '.');
+      steps.push('Add the release notes to CHANGELOG.md.');
+      steps.push('Commit the bump, then tag v<version>.');
+    } else {
+      steps.push('Add the release notes to CHANGELOG.md.');
+      steps.push('Tag v<version>. The tag is the version.');
+    }
+    steps.push('Push the tag only when the user asks.');
+    var tools = ['Bash(git tag *)', 'Bash(' + r.test + ')'];
+    if (r.build) tools.push('Bash(' + r.build + ')');
+    if (r.versionFile) tools.push('Bash(git commit *)');
+    var out = [
+      '---',
+      'name: release',
+      'description: Cut a release with tests, version bump, changelog and tag. Run only when the user asks.',
+      'disable-model-invocation: true',
+      'allowed-tools: ' + tools.join(', '),
+      '---',
+      ''
+    ];
+    steps.forEach(function (x, i) { out.push((i + 1) + '. ' + x); });
+    return out.join('\n');
+  }
+
+  var PREVIEW = {
+    agents: function (c) { return agentsText(c); },
+    claude: function () { return '@AGENTS.md'; },
+    settings: function (c) { return JSON.stringify(settingsObj(c), null, 2); },
+    reviewer: function (c) { return reviewerText(c); },
+    rule: function (c) { return ruleText(c); },
+    release: function (c) { return releaseText(c); },
+    worktree: function () { return '.env\n.env.local'; },
+    gitignore: function () { return 'CLAUDE.local.md\n.claude/settings.local.json\n.claude/worktrees/'; },
+    gemini: function () { return JSON.stringify({ context: { fileName: ['AGENTS.md', 'GEMINI.md'] } }, null, 2); },
+    aider: function () { return 'read: AGENTS.md'; },
+    cursor: function (c) { return mirrorText('cursor', c); },
+    copilot: function (c) { return mirrorText('copilot', c); },
+    cline: function (c) { return mirrorText('cline', c); },
+    windsurf: function (c) { return mirrorText('windsurf', c); }
+  };
+
+  var state = { items: [], c: null, s: null, selected: 'agents' };
+  var statusTimer = null;
+
+  function buildTree(items) {
+    var root = { dirs: new Map(), files: [] };
+    items.forEach(function (it) {
+      var parts = it.path.split('/');
+      var node = root;
+      for (var i = 0; i < parts.length - 1; i++) {
+        if (!node.dirs.has(parts[i])) node.dirs.set(parts[i], { dirs: new Map(), files: [] });
+        node = node.dirs.get(parts[i]);
+      }
+      node.files.push(it);
+    });
+    return root;
+  }
+
+  function renderTreeNode(node, ul) {
+    node.files.forEach(function (f) {
+      var li = el('li', 'file');
+      var b = el('button', 'file', f.name);
+      b.type = 'button';
+      b.setAttribute('data-id', f.id);
+      b.setAttribute('aria-pressed', String(f.id === state.selected));
+      li.appendChild(b);
+      li.appendChild(el('span', 'why', f.why));
+      ul.appendChild(li);
+    });
+    node.dirs.forEach(function (child, name) {
+      var li = el('li', 'dir');
+      li.appendChild(el('span', 'dirname', name + '/'));
+      var sub = el('ul');
+      renderTreeNode(child, sub);
+      li.appendChild(sub);
+      ul.appendChild(li);
+    });
+  }
+
+  function renderPreview() {
+    var item = state.items.filter(function (i) { return i.id === state.selected; })[0] || state.items[0];
+    state.selected = item.id;
+    $('prev-title').textContent = item.path;
+    $('prev-why').textContent = item.why;
+    $('preview').textContent = PREVIEW[item.id](state.c);
+  }
+
+  function syncLayout(s) {
+    var usable = s.stack === 'node' || s.stack === 'rust';
+    document.querySelectorAll('input[name="layout"]').forEach(function (r) { r.disabled = !usable; });
+    var hint;
+    if (!usable) hint = 'No effect for this stack. Only node and rust use layout.';
+    else if (s.stack === 'node') hint = s.layout === 'monorepo' ? 'Uses the node-monorepo template.' : 'Uses the node-single template.';
+    else hint = s.layout === 'monorepo' ? 'Uses the rust-workspace template.' : 'Uses the rust-single template.';
+    $('layout-hint').textContent = hint;
+  }
+
+  function render() {
+    var s = readState();
+    var c = resolve(s.stack, s.mono);
+    var items = buildItems(s, c);
+    var reads = readsList(s);
+    state.s = s;
+    state.c = c;
+    state.items = items;
+    if (!items.some(function (i) { return i.id === state.selected; })) state.selected = 'agents';
+
+    syncLayout(s);
+    $('cmd').textContent = commandText(s);
+
+    var flagNotes = [];
+    if (s.minimal) flagNotes.push('--minimal drops rules, the reviewer, the release skill, .worktreeinclude and the .gitignore append. Adapters for picked agents stay.');
+    if (s.skipSkills) flagNotes.push('--skip-skills leaves out .claude/skills.');
+    var nf = $('note-flags');
+    nf.textContent = flagNotes.join(' ');
+    nf.hidden = flagNotes.length === 0;
+
+    var extra = s.agents.filter(function (a) { return READS_ONLY.indexOf(a) !== -1 && (a === 'zed' || a === 'junie'); });
+    var na = $('note-agents');
+    na.textContent = extra.length ? 'Zed and Junie are not --agents values. They read AGENTS.md and need no file, so the command leaves them out.' : '';
+    na.hidden = extra.length === 0;
+
+    $('tpl').textContent = 'Template: ' + c.tpl;
+
+    var tree = $('tree');
+    tree.textContent = '';
+    renderTreeNode(buildTree(items), tree);
+
+    $('counter').textContent = items.length + ' files, ' + (1 + s.agents.length) + ' agents covered';
+
+    var rl = $('reads');
+    rl.textContent = '';
+    if (reads.length === 0) {
+      rl.appendChild(el('li', null, 'None of the selected agents.'));
+    } else {
+      reads.forEach(function (a) {
+        var li = el('li');
+        li.appendChild(el('strong', null, AGENT_NAME[a]));
+        li.appendChild(document.createTextNode(' '));
+        li.appendChild(el('span', null, 'reads AGENTS.md. Nothing to write.'));
+        rl.appendChild(li);
+      });
+    }
+
+    renderPreview();
+  }
+
+  function setStatus(text) {
+    $('copy-status').textContent = text;
+    if (statusTimer) clearTimeout(statusTimer);
+    statusTimer = setTimeout(function () { $('copy-status').textContent = ''; }, 2500);
+  }
+
+  function fallbackCopy(text) {
+    var ok = false;
+    try {
+      var ta = el('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) {
+      ok = false;
+    }
+    setStatus(ok ? 'Copied to clipboard.' : 'Copy failed. Select the command and copy it.');
+  }
+
+  $('copy').addEventListener('click', function () {
+    var text = $('cmd').textContent;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          function () { setStatus('Copied to clipboard.'); },
+          function () { fallbackCopy(text); }
+        );
+        return;
+      }
+    } catch (e) { /* fall through */ }
+    fallbackCopy(text);
+  });
+
+  $('tree').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button[data-id]') : null;
+    if (!b) return;
+    state.selected = b.getAttribute('data-id');
+    document.querySelectorAll('#tree button.file').forEach(function (x) {
+      x.setAttribute('aria-pressed', String(x.getAttribute('data-id') === state.selected));
+    });
+    renderPreview();
+  });
+
+  $('controls').addEventListener('change', render);
+  $('controls').addEventListener('input', render);
+
+  render();
+})();
+</script>
+</body>
+</html>
