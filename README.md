@@ -12,74 +12,103 @@
   <a href="https://code.claude.com"><img src="https://img.shields.io/badge/built%20for-Claude%20Code-cc785c?style=flat-square&labelColor=1f1f1e" alt="Built for Claude Code"/></a>
 </p>
 
-<p align="center">
-  <strong>One slash command. AGENTS.md for every coding agent, plus Claude Code extras.</strong><br/>
-  <em>A small script detects your stack, commands, and existing agent configs.<br/>
-  Claude writes only the files that earn their keep on this project.</em>
-</p>
+**Coding agents guess your build and test commands. This gives every agent the real ones.**
 
-<p align="center">
-  No empty folders &nbsp;·&nbsp; No placeholder TODOs &nbsp;·&nbsp; No invented commands
-</p>
+claude-setup detects your stack and writes one `AGENTS.md` with verified commands, hard rules and version notes that your agents read.
 
----
+## Quick start
 
-## Demo
+1. Install the skill: `npx -y @claude-setup-skill/install`
+2. Go to a project folder and run `claude`.
+3. Type `/claude-setup`.
 
-A `/claude-setup` run on the `acme-saas` Node monorepo (pnpm + turbo + Next.js + Hono + Drizzle). The detector finds the stack from lockfiles and `package.json` workspaces and lists the real commands. The skill keeps the hard rules the README states, then writes `AGENTS.md`, a `CLAUDE.md` that imports it, and a path-scoped `.claude/` tree:
+To see the plan first, add `--dry-run`. Nothing is written.
+
+## Before / after
+
+Before, a typical hand-written file:
+
+```markdown
+# Project notes
+
+- Write clean, readable code.
+- Run the tests before you commit.
+- Keep functions small.
+- Follow the best practices for the framework.
+```
+
+After, part of the `AGENTS.md` from [`examples/acme-saas.md`](./examples/acme-saas.md). The project is fictional.
+
+```markdown
+# acme-saas
+
+## Commands
+- Install: `pnpm install --frozen-lockfile`
+- Test: `pnpm test`
+- Typecheck: `pnpm run typecheck`
+
+## Hard rules
+- "PII never in logs." (README.md:41)
+
+## Version notes
+- Next.js 15: `cookies()`, `headers()`, `params` and `searchParams` are async. Await them.
+- Turborepo 2: tasks go under `tasks` in `turbo.json`. The old `pipeline` key is gone.
+```
+
+## How it works
+
+```mermaid
+flowchart LR
+  R["Your repo"] --> D["detect.mjs"] --> P["Plan (you confirm)"] --> W["Write files"] --> V["verify.mjs"]
+```
+
+1. **Detect.** The detector reads manifests, CI workflows and existing agent files. It never reads `.env` files or lockfile contents.
+2. **Load guidance.** The matching template and knowledge notes load into context.
+3. **Plan.** The skill prints every file it will write. It asks you to confirm.
+4. **Write.** It writes `AGENTS.md` first, then `CLAUDE.md`, `.claude/` and the adapters.
+5. **Verify.** `verify.mjs` checks line counts, JSON, secret-like text and the `@AGENTS.md` import.
+
+## One file, every agent
+
+Most agents read `AGENTS.md` directly. Claude Code, Gemini CLI and Aider need a small file that points to it.
+
+```mermaid
+flowchart TD
+  AG["AGENTS.md"]
+  CM["CLAUDE.md imports AGENTS.md"]
+  GS[".gemini/settings.json"]
+  AC[".aider.conf.yml"]
+  CC["Claude Code"]
+  GC["Gemini CLI"]
+  AI["Aider"]
+  CX["Codex"]
+  CU["Cursor"]
+  CP["Copilot"]
+  WS["Windsurf"]
+  CL["Cline"]
+  ZD["Zed"]
+  JN["Junie"]
+  AM["Amp"]
+
+  AG --> CM --> CC
+  AG --> GS --> GC
+  AG --> AC --> AI
+  AG --> CX & CU & CP & WS & CL & ZD & JN & AM
+```
+
+Copilot chat on github.com reads only `.github/copilot-instructions.md`. The skill does not write that file.
+
+## See it
 
 <p align="center">
   <img src="./assets/demo.svg" alt="claude-setup terminal demo" width="900"/>
 </p>
 
-Each `rules/*.md` is path-scoped (frontmatter `paths:`) so it only enters context when you open a file under that subtree. Skills such as `release` and `preview-deploy` are wired to commands that exist in the repo. No TODO bodies, no docs-example boilerplate.
+<p align="center">
+  <img src="./assets/how-it-works.svg" alt="How claude-setup works" width="900"/>
+</p>
 
-See [`examples/acme-saas.md`](./examples/acme-saas.md) for the file-by-file breakdown, including which README phrase became which rule.
-
----
-
-## Install
-
-**Quickest** — zero install, runs once:
-
-```sh
-npx -y @claude-setup-skill/install
-```
-
-**Global** — keeps a `claude-setup-install` command around to rerun anytime:
-
-```sh
-npm i -g @claude-setup-skill/install && claude-setup-install
-```
-
-**From source** — for contributing or live-editing the skill:
-
-```sh
-git clone https://github.com/sir-ad/claude-setup-skill ~/claude-setup-skill
-cd ~/claude-setup-skill && ./install.sh
-```
-
-All three populate `~/.claude/skills/claude-setup/`. The npm methods copy files; from-source symlinks them so edits in your clone are immediately live.
-
-## Use
-
-In any project:
-
-```sh
-cd ~/some-project
-claude
-> /claude-setup
-```
-
-Optional flags:
-
-| Flag | Effect |
-|---|---|
-| `--dry-run` | print the plan, write nothing |
-| `--minimal` | only `AGENTS.md`, `CLAUDE.md` and `.claude/settings.json` |
-| `--skip-skills` | skip skill generation |
-| `--agents=<list>` | write adapters for these tools: `claude,codex,cursor,copilot,gemini,aider,cline,windsurf` or `all`. Default is Claude plus any tool whose config already exists |
-| `--update` | re-run detection, show a diff against your current files, apply only the hunks you confirm. Your own prose is never rewritten |
+[Try the interactive explorer](https://htmlpreview.github.io/?https://github.com/sir-ad/claude-setup-skill/blob/main/docs/index.html). The explorer is a single HTML file. You can also open `docs/index.html` in a browser.
 
 ## What it writes
 
@@ -87,25 +116,38 @@ Optional flags:
 |---|---|
 | `AGENTS.md` | always. Commands, repo map, conventions, hard rules with sources, version notes, boundaries |
 | `CLAUDE.md` | always. First line `@AGENTS.md`, then Claude-only lines |
-| `.claude/settings.json` | always. Scoped allow rules, deny rules for destructive commands and secrets |
+| `.claude/settings.json` | always. Allow rules for your commands, deny rules for destructive commands and secrets |
 | `.claude/rules/<n>.md` | per directory with distinct conventions (`paths:` frontmatter) |
-| `.claude/agents/<lang>-reviewer.md` | read-only review subagent |
-| `.claude/skills/<n>/` | per real workflow (release, preview deploy, migrations) |
+| `.claude/agents/<lang>-reviewer.md` | read-only reviewer subagent |
+| `.claude/skills/<n>/` | per real workflow, such as release or preview deploy |
 | `.worktreeinclude` | when gitignored files such as `.env` need to reach worktrees |
-| Adapters | `.gemini/settings.json`, `.aider.conf.yml`, and rule mirrors for Cursor, Copilot, Cline and Windsurf, only for tools you pick or already use |
+| Adapters | `.gemini/settings.json`, `.aider.conf.yml`, and rule mirrors for Cursor, Copilot, Cline and Windsurf. Only for agents you pick or already use |
 | Formatter hook | only if a formatter is detected and you say yes |
 
-Version notes come from `knowledge/`: short, cited, version-gated entries (for example, a note about Next.js 15 appears only if your project declares Next.js 15). Your pinned versions always win.
+It never writes empty folders, placeholder skills or legacy single-file rules.
 
-What it never writes:
+## Why the output is trustworthy
 
-- `.claude/output-styles/`, `.claude/commands/`, `.claude/agent-memory/`
-- Empty folders or skills with TODO bodies
-- Commands, rules or version notes it can't trace to your repo or a cited source
-- Secrets or `.env` values. It never reads `.env*` files.
-- `.junie/AGENTS.md`, legacy single-file rules, or Roo Code files
+- **Commands come from your repo.** The detector lists each command with its source, such as `package.json#scripts.*` or a CI workflow. The skill opens those scripts before it writes a command.
+- **Hard rules keep their source.** Each rule is quoted in full with its `file:line`. The skill never trims a qualifier such as "unless" or "except".
+- **Version notes follow your versions.** A Next.js 15 note appears only when your project declares Next.js 15. Each note links to its upstream source.
+- **The plan is a contract.** The skill prints every file before it writes. It then writes exactly those files and reports any drift.
+- **verify.mjs checks what was written.** It checks line counts, JSON syntax, secret-like text and the `@AGENTS.md` import. It never prints a matched secret.
+- **It never reads `.env` files.** The detector skips them, and the generated settings deny reads of them.
 
-## Stacks supported
+## Flags
+
+| Flag | Effect |
+|---|---|
+| `--dry-run` | print the plan, write nothing |
+| `--minimal` | only `AGENTS.md`, `CLAUDE.md` and `.claude/settings.json` |
+| `--skip-skills` | skip skill generation |
+| `--agents=<list>` | write adapters for these agents: `claude,codex,cursor,copilot,gemini,aider,cline,windsurf` or `all`. Default is Claude plus any agent whose config already exists |
+| `--update` | re-run detection, show a diff against your current files, apply only the hunks you confirm. Your own prose is never rewritten |
+
+To refresh a project you already set up, run `/claude-setup --update` in it.
+
+## Stacks
 
 | Stack | Template |
 |---|---|
@@ -121,11 +163,11 @@ What it never writes:
 | PHP | `templates/php.md` |
 | Anything else | `templates/generic.md` |
 
-## Agents supported
+## Agents
 
-`AGENTS.md` is the shared source of truth. Most tools read it directly.
+`AGENTS.md` is the shared source of truth. Most agents read it directly.
 
-| Tool | What the skill does |
+| Agent | What the skill does |
 |---|---|
 | Claude Code | `CLAUDE.md` imports `AGENTS.md`, plus `.claude/` extras |
 | Codex, Zed, Junie, Amp, Kiro, opencode | nothing extra. They read `AGENTS.md` |
@@ -133,51 +175,46 @@ What it never writes:
 | Gemini CLI | `.gemini/settings.json` so it reads `AGENTS.md` |
 | Aider | `.aider.conf.yml` so it reads `AGENTS.md` |
 
-Details and hazards (for example, legacy `.cursorrules` shadowing `AGENTS.md` in Zed) are in [`reference/agent-adapters.md`](./reference/agent-adapters.md).
+Hazards and details, such as legacy `.cursorrules` files that shadow `AGENTS.md` in Zed, are in [`reference/agent-adapters.md`](./reference/agent-adapters.md).
 
-## How it works
+## Install options
 
-1. **Detect.** `scripts/context.mjs` (Node, zero dependencies, read-only) runs `scripts/detect.mjs` and prints one block of context: the detection JSON (stack, workspaces, framework versions, commands with their sources, existing agent configs, hard-rule candidates), the chosen template, the matching `knowledge/` notes and the reference files. If Node is missing, the skill reads the files itself and falls back to reading manifests by hand.
-2. **Use the guidance.** The template and knowledge notes are already in context. The model may override the template choice only with a stated reason.
-3. **Plan.** Prints what it will write, the version notes and hard rules it kept, and any hazards. Asks before touching existing files.
-4. **Generate.** Writes `AGENTS.md` first, then `CLAUDE.md`, `.claude/`, and adapters.
-5. **Verify.** `scripts/verify.mjs` checks every written file: line counts, JSON validity, secret-like text, the `@AGENTS.md` import and settings safety. The skill then compares the files with the confirmed plan, optionally runs one fast check (lint, typecheck or a single test) to confirm the commands work, and gives one check per tool (`/memory` in Claude Code, `/memory show` in Gemini CLI).
-
-## Headless / CI use
-
-`claude -p "/claude-setup --dry-run"` works and prints the plan. For a run that writes files, use interactive mode: in some permission modes Claude Code refuses writes under `.claude/`. When that happens the skill prints the full file content in its report instead of skipping it, and you create the file yourself. Under `--permission-mode acceptEdits` Claude Code refuses writes to `.claude/settings.json` and `.claude/rules/`, so expect those in the report as content to create by hand, or run interactively. If the context injection is unavailable (the skill directory is outside the allowed paths), pass `--add-dir ~/.claude/skills/claude-setup`.
-
-## Updating
-
-Pull this repo. The symlink keeps the skill live:
+All three put the skill in `~/.claude/skills/claude-setup/`.
 
 ```sh
-cd ~/claude-setup-skill
-git pull
+npx -y @claude-setup-skill/install                             # run once
+npm i -g @claude-setup-skill/install && claude-setup-install   # keep a command for reruns
 ```
-
-To refresh a project you already set up, run `/claude-setup --update` in it.
-
-## Uninstalling
 
 ```sh
-./install.sh --uninstall
+git clone https://github.com/sir-ad/claude-setup-skill ~/claude-setup-skill   # from source
+cd ~/claude-setup-skill && ./install.sh
 ```
 
-Removes the symlink. Doesn't touch this repo or any files you've generated in projects.
+The npm methods copy files. From source, a symlink points at your clone, so edits take effect at once. Run `git pull` in the clone to update.
 
-## Why a skill, not a CLI
-
-A skill is markdown Claude reads at runtime. Judgment, such as which hard rules are real and which conventions are worth a line, stays with the model, which is already good at reading a project. The parts that must not vary run in a small zero-dependency script: detecting the stack, finding commands, converting rules for other tools. Same repo, same JSON. A standalone CLI would need a fixed templating engine or an API key. A skill needs neither.
-
-## Development
+## Uninstall
 
 ```sh
-npm run check    # validate repo files, then run the tests
+npx -y @claude-setup-skill/install --uninstall   # npm install
+./install.sh --uninstall                         # from source
 ```
 
-Node 18 or newer, no dependencies. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for adding a stack template or a knowledge note.
+From source, this removes the symlink. It doesn't touch this repo or the files generated in your projects.
+
+## Headless / CI
+
+- `claude -p "/claude-setup --dry-run"` prints the plan and writes nothing.
+- For a run that writes files, use interactive mode. In some permission modes, Claude Code refuses writes under `.claude/`. The skill then prints the full content of each refused file in its report. Create those files by hand.
+- With `--permission-mode acceptEdits`, Claude Code refuses writes to `.claude/settings.json` and `.claude/rules/`. Expect them in the report, or run interactively.
+- If the skill cannot load its context because the skill directory is outside the allowed paths, pass `--add-dir ~/.claude/skills/claude-setup`.
+
+## Contributing
+
+Run `npm run check` to validate the repo files and run the tests. It needs Node 18 or newer and no dependencies. See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add a stack template or a knowledge note.
 
 ## License
 
-MIT. See [`LICENSE`](./LICENSE).
+MIT. See [LICENSE](./LICENSE).
+
+If this saved you setup time, a star helps others find it.
