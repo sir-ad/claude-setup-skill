@@ -28,15 +28,17 @@ Shown for a Rails app with RSpec and RuboCop. Keep only the lines whose tools ex
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(bundle install)",
+      "Bash(bundle install *)",
       "Bash(bundle exec rspec *)",
       "Bash(bin/rails test *)",
       "Bash(bin/rails db:migrate)",
       "Bash(bin/rails db:test:prepare)",
       "Bash(bin/rails generate *)",
       "Bash(bin/rubocop *)",
-      "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
     ],
     "ask": ["Bash(git push *)", "Bash(bin/rails console*)"],
     "deny": [

@@ -30,8 +30,10 @@ Use when the detector reports `primary: "dotnet"`: a `.sln`, `.slnx`, `.csproj` 
       "Bash(dotnet build *)",
       "Bash(dotnet test *)",
       "Bash(dotnet format *)",
-      "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
     ],
     "ask": ["Bash(git push *)", "Bash(dotnet run *)", "Bash(dotnet ef database update*)"],
     "deny": [

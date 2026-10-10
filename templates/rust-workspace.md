@@ -33,8 +33,10 @@ Use when the root `Cargo.toml` has a `[workspace]` table with members, or the de
       "Bash(cargo fmt *)",
       "Bash(cargo doc *)",
       "Bash(cargo tree *)",
-      "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
     ],
     "ask": ["Bash(git push *)", "Bash(cargo add *)", "Bash(cargo install *)"],
     "deny": [

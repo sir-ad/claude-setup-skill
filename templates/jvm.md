@@ -31,8 +31,10 @@ Shown for Maven with a wrapper. For Gradle use `./gradlew test *`, `./gradlew bu
       "Bash(./mvnw verify *)",
       "Bash(./mvnw compile *)",
       "Bash(./mvnw package *)",
-      "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
     ],
     "ask": ["Bash(git push *)"],
     "deny": [

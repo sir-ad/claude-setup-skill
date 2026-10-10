@@ -28,15 +28,17 @@ Shown for Laravel with Pest and PHPStan. Keep only the lines whose tools exist. 
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(composer install)",
+      "Bash(composer install *)",
       "Bash(composer run test*)",
       "Bash(vendor/bin/pest *)",
       "Bash(vendor/bin/phpstan *)",
       "Bash(vendor/bin/pint *)",
       "Bash(php artisan test *)",
       "Bash(php artisan make*)",
-      "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
     ],
     "ask": [
       "Bash(git push *)",

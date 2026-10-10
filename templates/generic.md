@@ -26,9 +26,11 @@ Write the minimum that is true.
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(make test)",
-      "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(make test *)",
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
     ],
     "ask": ["Bash(git push *)"],
     "deny": [
