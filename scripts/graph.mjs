@@ -982,7 +982,8 @@ function mermaidBlock(graph, maxNodes) {
 
 export function renderMarkdown(graph, opts = {}) {
   const maxNodes = opts.maxNodes ?? 25;
-  const out = ['### Module graph', ''];
+  const langs = (graph.languages || []).map((l) => l.name).join(', ') || 'none';
+  const out = [`Source files: ${graph.files} (plus ${graph.testFiles} test files). Languages: ${langs}.`, '', '### Module graph', ''];
   out.push(graph.nodes.length ? mermaidBlock(graph, maxNodes) : 'No source files found.');
   out.push('', '### Entry points', '');
   if (graph.entryPoints.length) {

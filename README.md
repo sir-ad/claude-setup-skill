@@ -14,7 +14,9 @@
 
 **Coding agents guess your build and test commands. This gives every agent the real ones.**
 
-claude-setup detects your stack and writes one `AGENTS.md` with verified commands, hard rules and version notes that your agents read.
+claude-setup detects your stack and writes one [`AGENTS.md`](https://agents.md) that your agents read. It lists commands traced to your package scripts, Makefile and CI, hard rules quoted with their source, and version notes. It also writes a repo map, topic rules and a small agent pipeline.
+
+It runs inside [Claude Code](https://code.claude.com) and needs Node 18 or newer on your PATH. The files it writes work with other agents too.
 
 ## Quick start
 
@@ -62,11 +64,53 @@ flowchart LR
   R["Your repo"] --> D["detect.mjs"] --> P["Plan (you confirm)"] --> W["Write files"] --> V["verify.mjs"]
 ```
 
-1. **Detect.** The detector reads manifests, CI workflows and existing agent files. It never reads `.env` files or lockfile contents.
-2. **Load guidance.** The matching template and knowledge notes load into context.
-3. **Plan.** The skill prints every file it will write. It asks you to confirm.
-4. **Write.** It writes `AGENTS.md` first, then `CLAUDE.md`, `.claude/` and the adapters.
-5. **Verify.** `verify.mjs` checks line counts, JSON, secret-like text and the `@AGENTS.md` import.
+1. **Detect.** `context.mjs` runs the detector and the repo graph. The detector reads manifests, CI workflows and existing agent files. It never reads `.env` files or lockfile contents. Commands marked `implied:` are inferred from a manifest, so the skill checks them against your scripts.
+2. **Load guidance.** The matching template, knowledge notes and file blueprints load into context.
+3. **Plan.** The skill prints every file it will write, with the exact `settings.json`. It asks you to confirm.
+4. **Write.** It writes `AGENTS.md` first, then `CLAUDE.md`, `docs/`, `.claude/` and the adapters.
+5. **Verify.** `verify.mjs` checks line counts, JSON, secret-like text and the `@AGENTS.md` import. The skill then compares the files with the plan.
+
+## What your agents get
+
+```
+AGENTS.md                      commands, working agreements, hard rules, version notes. Every agent reads it
+CLAUDE.md                      imports AGENTS.md, adds Claude-only token habits
+docs/
+  architecture.md              components and data flow, from what the code shows
+  project-structure.md         module graph, entry points, central modules. --update refreshes it
+  config.md                    env var names and config files, never values
+  decisions/                   ADR template, only if you have no ADR folder
+.claude/
+  settings.json                narrow allow rules, deny rules for secrets and destructive commands
+  rules/
+    code-style.md              only what your linter does not already enforce
+    testing.md                 runner, single-test command, fixtures
+    security.md                short always-on checklist
+  agents/
+    explorer.md                read-only search that returns file:line
+    test-runner.md             runs your checks, returns only failures
+    <lang>-reviewer.md         read-only review, keeps project memory
+  skills/
+    plan-task/                 explore, write a plan file, stop for approval
+    handoff/                   save session state so a new session can continue
+```
+
+Each file is written from your repo, a script or a cited note. A file is skipped when an equivalent exists.
+
+## Agentic pipeline
+
+The default is one main agent plus three narrow helpers. The flow is explore, plan, implement, verify.
+
+1. `explorer` searches without filling your main context.
+2. `/plan-task <task>` writes `docs/plans/<date>-<slug>.md` and stops. You approve.
+3. The main agent implements it step by step. `test-runner` returns only failing checks. After 3 failed fixes, the agent stops and reports.
+4. `/handoff` writes `.claude/handoff.md`. An optional hook prints it when a session starts.
+
+Helpers are read-only and cannot start other helpers. Anthropic notes that coding has fewer parallel subtasks than research, so more agents help less. Google's ADK gives the same advice to give each agent one job. The pattern mapping and sources are in [`reference/agentic-pipeline.md`](./reference/agentic-pipeline.md).
+
+## Code search and embeddings
+
+Embeddings are opt-in. The default is agentic search (grep and glob) plus the generated repo graph. An index has to be built, can drift from the code, and needs a place to live. The graph needs none of that. For large repos the plan can offer an MCP server: a local language-server or graph tool, or a semantic index that needs an embedding API key and a vector database. `.mcp.json` is written only on a yes. See [`reference/code-search.md`](./reference/code-search.md).
 
 ## One file, every agent
 
@@ -96,7 +140,7 @@ flowchart TD
   AG --> CX & CU & CP & WS & CL & ZD & JN & AM
 ```
 
-Copilot chat on github.com reads only `.github/copilot-instructions.md`. The skill does not write that file.
+Copilot chat on github.com reads only `.github/copilot-instructions.md`, which the skill does not write.
 
 ## See it
 
@@ -108,32 +152,35 @@ Copilot chat on github.com reads only `.github/copilot-instructions.md`. The ski
   <img src="./assets/how-it-works.svg" alt="How claude-setup works" width="900"/>
 </p>
 
-[Try the interactive explorer](https://htmlpreview.github.io/?https://github.com/sir-ad/claude-setup-skill/blob/main/docs/index.html). The explorer is a single HTML file. You can also open `docs/index.html` in a browser.
+[Try the interactive explorer](https://htmlpreview.github.io/?https://github.com/sir-ad/claude-setup-skill/blob/main/docs/index.html). You can also open `docs/index.html` in a browser.
 
 ## What it writes
 
 | File | When |
 |---|---|
-| `AGENTS.md` | always. Commands, repo map, conventions, hard rules with sources, version notes, boundaries |
-| `CLAUDE.md` | always. First line `@AGENTS.md`, then Claude-only lines |
-| `.claude/settings.json` | always. Allow rules for your commands, deny rules for destructive commands and secrets |
-| `.claude/rules/<n>.md` | per directory with distinct conventions (`paths:` frontmatter) |
-| `.claude/agents/<lang>-reviewer.md` | read-only reviewer subagent |
-| `.claude/skills/<n>/` | per real workflow, such as release or preview deploy |
-| `.worktreeinclude` | when gitignored files such as `.env` need to reach worktrees |
+| `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json` | always. Allow rules cover only your commands and read-only git |
+| `docs/` files | default. Skipped by `--skip-docs` or when an equivalent exists |
+| `.claude/rules/` topic rules | default. Directory rules only for directories with distinct conventions |
+| `.claude/agents/`, `plan-task`, `handoff` | default. Skipped by `--skip-pipeline` |
+| `.claude/skills/<n>/`, `.worktreeinclude` | per real workflow (release, preview deploy), and for gitignored files that worktrees need |
 | Adapters | `.gemini/settings.json`, `.aider.conf.yml`, and rule mirrors for Cursor, Copilot, Cline and Windsurf. Only for agents you pick or already use |
-| Formatter hook | only if a formatter is detected and you say yes |
+| Formatter hook, handoff hook, `.mcp.json`, `.codex/config.toml` | only if you say yes in the plan |
 
 It never writes empty folders, placeholder skills or legacy single-file rules.
 
-## Why the output is trustworthy
+## What is checked, and what is instructed
 
-- **Commands come from your repo.** The detector lists each command with its source, such as `package.json#scripts.*` or a CI workflow. The skill opens those scripts before it writes a command.
-- **Hard rules keep their source.** Each rule is quoted in full with its `file:line`. The skill never trims a qualifier such as "unless" or "except".
-- **Version notes follow your versions.** A Next.js 15 note appears only when your project declares Next.js 15. Each note links to its upstream source.
-- **The plan is a contract.** The skill prints every file before it writes. It then writes exactly those files and reports any drift.
-- **verify.mjs checks what was written.** It checks line counts, JSON syntax, secret-like text and the `@AGENTS.md` import. It never prints a matched secret.
-- **It never reads `.env` files.** The detector skips them, and the generated settings deny reads of them.
+Scripts enforce these:
+- The detector lists each command with its source, such as `package.json#scripts.*` or a CI workflow. Nothing runs a command unless you say yes to one optional check.
+- The graph in `docs/project-structure.md` is script output, pasted between fence markers.
+- `verify.mjs` checks line counts, JSON syntax, secret-like text, the `@AGENTS.md` import and unsafe settings. It does not print a matched secret.
+- The detector skips `.env` files, and the generated settings deny reads of them.
+
+The skill instructs the model to do these, and they are not enforced by code:
+- Quote each hard rule in full with its `file:line`, and never trim a qualifier such as "unless".
+- Write a version note only when your project declares that version. The notes live in `knowledge/` with their sources. The one-line notes in `AGENTS.md` do not carry links.
+- Print the plan first, write exactly what it lists, and report any drift.
+- Open your scripts before writing a command, and grep the repo before banning a pattern in a rule.
 
 ## Flags
 
@@ -141,7 +188,9 @@ It never writes empty folders, placeholder skills or legacy single-file rules.
 |---|---|
 | `--dry-run` | print the plan, write nothing |
 | `--minimal` | only `AGENTS.md`, `CLAUDE.md` and `.claude/settings.json` |
-| `--skip-skills` | skip skill generation |
+| `--skip-docs` | skip the `docs/` files |
+| `--skip-pipeline` | skip the explorer, test-runner, reviewer, `plan-task`, `handoff` and the working agreements |
+| `--skip-skills` | skip all `.claude/skills/` |
 | `--agents=<list>` | write adapters for these agents: `claude,codex,cursor,copilot,gemini,aider,cline,windsurf` or `all`. Default is Claude plus any agent whose config already exists |
 | `--update` | re-run detection, show a diff against your current files, apply only the hunks you confirm. Your own prose is never rewritten |
 
@@ -215,5 +264,3 @@ Run `npm run check` to validate the repo files and run the tests. It needs Node 
 ## License
 
 MIT. See [LICENSE](./LICENSE).
-
-If this saved you setup time, a star helps others find it.

@@ -280,7 +280,8 @@ const run = (args) => spawnSync(process.execPath, [SCRIPT, ...args], { encoding:
 test('cli: markdown is the default and --json prints the graph', () => {
   const md = run([fixture('graph-go')]);
   assert.equal(md.status, 0);
-  assert.match(md.stdout, /^### Module graph/);
+  assert.match(md.stdout, /^Source files: \d+ \(plus \d+ test files\)\. Languages: /);
+  assert.match(md.stdout, /^### Module graph$/m);
 
   const json = run([fixture('graph-go'), '--json']);
   assert.equal(json.status, 0);

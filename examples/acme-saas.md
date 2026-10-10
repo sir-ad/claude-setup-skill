@@ -12,6 +12,7 @@ From `node scripts/detect.mjs .`:
 - `commands`: install, build, test, lint, typecheck and dev, each with its source (`package.json#scripts.*` or `.github/workflows/ci.yml`)
 - `agentConfigs`: `.cursor/rules/` exists, so Cursor is selected next to Claude
 - `versionFiles`: `package.json`, with `CHANGELOG.md` and `.changeset/` present, so a `/release` skill is justified
+- `docs`: `docs/adr/` exists, so `docs/decisions/` is skipped
 - `infra`: `vercel: true`, so a `/preview-deploy` skill is justified
 - `hardRuleCandidates` from `README.md`: "PII never in logs", "Drizzle migrations are append-only", "App Router only", and two more that the skill dropped as marketing text
 
@@ -20,26 +21,80 @@ From `node scripts/detect.mjs .`:
 ```
 acme-saas/
 ├── AGENTS.md                          # source of truth, read by every agent
-├── CLAUDE.md                          # @AGENTS.md + one Claude-only line
+├── CLAUDE.md                          # @AGENTS.md + token habits for Claude Code
 ├── .worktreeinclude                   # .env, .env.local, CLAUDE.local.md
+├── docs/
+│   ├── architecture.md                # components and data flow, from the code
+│   ├── project-structure.md           # module graph (script output) + short notes
+│   └── config.md                      # env var names from .env.example, never values
 ├── .cursor/rules/                     # mirrors of .claude/rules, via sync-rules.mjs
 │   ├── web-next.mdc
 │   ├── api-hono.mdc
 │   └── db-drizzle.mdc
 └── .claude/
-    ├── settings.json                  # pnpm/turbo/git allows; force-push and .env denies
+    ├── settings.json                  # pnpm/turbo/read-only git allows; force-push and .env denies
     ├── rules/
+    │   ├── code-style.md              # only what ESLint and Prettier do not enforce
+    │   ├── testing.md                 # Vitest, single-test command, no live DB in unit tests
+    │   ├── security.md                # always on: secrets, input validation, PII in logs
     │   ├── web-next.md                # apps/web/**: App Router, RSC vs client, server actions
     │   ├── api-hono.md                # apps/api/**: Hono handlers, env via wrangler
     │   └── db-drizzle.md              # packages/db/**: schema + append-only migrations
     ├── agents/
-    │   └── ts-reviewer.md             # Read/Grep/Glob; TS strict, RSC, PII checks
+    │   ├── explorer.md                # read-only search, returns path:line
+    │   ├── test-runner.md             # runs test/lint/typecheck, returns only failures
+    │   └── ts-reviewer.md             # TS strict, RSC, PII checks; memory: project
     └── skills/
+        ├── plan-task/SKILL.md         # /plan-task: explore, write docs/plans/..., stop
+        ├── handoff/SKILL.md           # /handoff: write .claude/handoff.md
         ├── release/SKILL.md           # changeset version, build, test, tag
         └── preview-deploy/SKILL.md    # vercel deploy + smoke check
 ```
 
-`.gitignore` got `CLAUDE.local.md`, `.claude/settings.local.json` and `.claude/worktrees/` appended. No formatter hook: the user answered no in the plan step.
+`docs/decisions/` was not written: the repo already has `docs/adr/`. `.gitignore` got `CLAUDE.local.md`, `.claude/settings.local.json`, `.claude/worktrees/` and `.claude/handoff.md` appended. No formatter hook and no handoff hook: the user answered no in the plan step. No `.mcp.json`: embeddings and code-search servers are opt-in.
+
+## docs/project-structure.md (excerpt)
+
+The block between the markers is script output from `scripts/graph.mjs`, pasted as is. The numbers are import counts. The notes below it are written by the model from files it opened.
+
+````markdown
+# Project structure
+
+pnpm workspaces. Two apps and two packages. Apps import from packages, never the reverse.
+
+<!-- claude-setup:begin graph -->
+### Module graph
+
+```mermaid
+flowchart LR
+  n_apps_web["apps/web"]
+  n_apps_api["apps/api"]
+  n_packages_db["packages/db"]
+  n_packages_ui["packages/ui"]
+  n_apps_web -->|14| n_packages_ui
+  n_apps_web -->|6| n_packages_db
+  n_apps_api -->|9| n_packages_db
+```
+
+### Entry points
+
+- `apps/api/src/index.ts` (package-main, apps/api/package.json "main")
+
+### Central modules
+
+- `packages/db`: imported by 2 modules, 11 files
+- `packages/ui`: imported by 1 module, 8 files
+<!-- claude-setup:end graph -->
+
+## Notes
+- `packages/db/` - Drizzle schema and migrations. Migrations are append-only.
+- `apps/api/` - Hono on Cloudflare Workers. No Node-only dependencies.
+
+## Generated, do not edit
+- `packages/db/migrations/meta/` - regenerate with `pnpm -C packages/db run generate`
+````
+
+`/claude-setup --update` replaces only the text between the markers. The notes stay as written.
 
 ## AGENTS.md (excerpt)
 
@@ -56,6 +111,12 @@ TypeScript monorepo. pnpm workspaces + Turborepo. Next.js 15 (apps/web), Hono (a
 - Lint: `pnpm run lint`
 - Typecheck: `pnpm run typecheck`
 - Dev: `pnpm run dev`
+
+## Working agreements
+- Explore first. Read the code and `docs/` before you change anything. Start with `docs/project-structure.md`.
+- For a change that touches several files, write a plan to `docs/plans/<yyyy-mm-dd>-<slug>.md` and wait for approval before editing source.
+- Verify with `pnpm test` and `pnpm run lint` before you call the work done.
+- If a check still fails after 3 fix attempts, stop. Report the command, the error and what you tried.
 
 ## Hard rules
 - "PII never in logs." (README.md:41)
@@ -81,7 +142,11 @@ Every command above has a source in the detector output. The version notes appea
 @AGENTS.md
 
 ## Claude Code
-Use plan mode for changes under `packages/db/`.
+- Send wide searches to the `explorer` subagent and test or lint runs to `test-runner`. Keep their output out of this conversation.
+- Read files by line range when you need part of a file.
+- Run `/clear` between unrelated tasks. Run `/compact <what to keep>` at a natural break.
+- Reviewer memory is in `.claude/agent-memory/`. Commit it.
+- Use plan mode for changes under `packages/db/`.
 ```
 
 Claude Code reads AGENTS.md on its own only when no CLAUDE.md exists. The import makes sure it still gets read.
@@ -102,7 +167,8 @@ Claude Code reads AGENTS.md on its own only when no CLAUDE.md exists. The import
 - `.claude/commands/`: skills cover it
 - `.claude/agent-memory/`: filled in automatically when subagents run
 - `/db-migrate` skill: `drizzle-kit push` is one command; a skill would only wrap it
-- `ui-shadcn.md` and `tests.md` rules: the conventions are standard, so AGENTS.md needs no extra file
+- A `ui-shadcn.md` rule: the conventions are standard, so `code-style.md` and AGENTS.md cover them
+- `docs/decisions/`: an ADR folder already exists
 - `.github/copilot-instructions.md`: Copilot reads AGENTS.md on its own
 
 ## What this looks like in practice
@@ -111,6 +177,8 @@ Claude Code reads AGENTS.md on its own only when no CLAUDE.md exists. The import
 - Open `apps/api/src/routes/users.ts`: `api-hono.md` loads, `web-next.md` does not.
 - Run `/release patch`: bumps versions through changesets, builds, tests, tags.
 - Run `/preview-deploy`: `vercel deploy`, then a smoke check on the URL.
+- Run `/plan-task add a billing page`: the explorer maps the code, a plan lands in `docs/plans/`, and Claude waits for approval.
+- Run `/handoff` before you stop: `.claude/handoff.md` records the goal, state and next steps.
 - Ask Codex or Copilot the same question: they read the same AGENTS.md.
 
 Verify: `/memory` in Claude Code shows AGENTS.md imported through CLAUDE.md.
