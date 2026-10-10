@@ -6,7 +6,7 @@ Core constraint: the context window fills fast and performance degrades as it fi
 
 ## Instruction files
 
-- **Keep CLAUDE.md under about 200 lines.** Move task-specific procedures into skills, which load only when used. ([memory](https://code.claude.com/docs/en/memory#write-effective-instructions) , [costs](https://code.claude.com/docs/en/costs#move-instructions-from-claude-md-to-skills))
+- **Keep CLAUDE.md under about 200 lines.** Move task-specific procedures into skills, which load only when used. ([memory](https://code.claude.com/docs/en/memory#write-effective-instructions), [costs](https://code.claude.com/docs/en/costs#move-instructions-from-claude-md-to-skills))
 - **Codex caps AGENTS.md at 32 KiB** in total (`project_doc_max_bytes`, default 32768) and truncates beyond it. ([codex source](https://github.com/openai/codex/blob/main/codex-rs/core/src/agents_md.rs)) The skill keeps AGENTS.md under 150 lines, well inside both limits.
 - **Use path-scoped rules.** A rule with `paths:` loads only when Claude reads or edits a matching file. A rule without `paths` loads every session. ([memory](https://code.claude.com/docs/en/memory#path-specific-rules))
 - **`@imports` do not save context.** Imported files load at launch with the file that imports them. Use them to avoid duplication, not to shrink. ([memory](https://code.claude.com/docs/en/memory#write-effective-instructions))
@@ -17,7 +17,7 @@ Core constraint: the context window fills fast and performance degrades as it fi
 - A subagent keeps verbose output out of the main context. Only its final summary comes back. Use one for searches and for test runs. ([sub-agents](https://code.claude.com/docs/en/sub-agents))
 - **Pick the model per subagent.** `model: haiku` is cheaper for search and test running. Leave review on `inherit` or a stronger model. `CLAUDE_CODE_SUBAGENT_MODEL` sets one for all. ([costs](https://code.claude.com/docs/en/costs#choose-the-right-model))
 - Anthropic describes sub-agents returning condensed summaries of about 1,000 to 2,000 tokens. ([context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)) The generated agents ask for `file:line` findings and no whole-file pastes for that reason.
-- **Agent teams cost more.** They are experimental, off by default (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`), and used about 7x the tokens in plan mode. Use them for parallel research or independent modules, not sequential work. ([agent teams](https://code.claude.com/docs/en/agent-teams) , [costs](https://code.claude.com/docs/en/costs#manage-agent-team-costs))
+- **Agent teams cost more.** They are experimental, off by default (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`), and used about 7x the tokens in plan mode. Use them for parallel research or independent modules, not sequential work. ([agent teams](https://code.claude.com/docs/en/agent-teams), [costs](https://code.claude.com/docs/en/costs#manage-agent-team-costs))
 - Plain multi-agent systems are costly too: about 15x a chat in Anthropic's research system. ([source](https://www.anthropic.com/engineering/multi-agent-research-system))
 
 ## Session habits
@@ -32,7 +32,7 @@ Core constraint: the context window fills fast and performance degrades as it fi
 
 ## Settings
 
-- **Effort.** `/effort` or the `effort` frontmatter field takes `low`, `medium`, `high`, `xhigh` or `max`. Lower effort uses fewer thinking tokens. Only the `ultrathink` keyword is recognized for a one-off deeper pass. "think hard" is plain text. ([model config](https://code.claude.com/docs/en/model-config) , [costs](https://code.claude.com/docs/en/costs#adjust-extended-thinking))
+- **Effort.** `/effort` or the `effort` frontmatter field takes `low`, `medium`, `high`, `xhigh` or `max`. Lower effort uses fewer thinking tokens. Only the `ultrathink` keyword is recognized for a one-off deeper pass. "think hard" is plain text. ([model config](https://code.claude.com/docs/en/model-config), [costs](https://code.claude.com/docs/en/costs#adjust-extended-thinking))
 - **Model.** Sonnet for most work, Opus for architecture, Haiku for subagents. ([costs](https://code.claude.com/docs/en/costs#choose-the-right-model))
 - **MCP.** Tool definitions are deferred by default. Prefer CLI tools such as `gh` over an MCP server. Disable unused servers with `/mcp`. ([costs](https://code.claude.com/docs/en/costs#reduce-mcp-server-overhead))
 - **Hooks can filter output.** A `PreToolUse` hook can rewrite a test command to print only failures. ([costs](https://code.claude.com/docs/en/costs#offload-processing-to-hooks-and-skills))
