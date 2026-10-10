@@ -2150,11 +2150,28 @@ function fitSentence(text, signal) {
 // so they are never offered back as evidence (that would cite its own text as a source).
 const GENERATED_SECTION = /^(?:commands|version notes|boundaries|working agreements|hard rules|repo map)\b/i;
 
+// A sentence that runs into a short code block finishes in it: "... which is done by running"
+// followed by a block holding `pnpm changeset` becomes "... by running `pnpm changeset`.".
+// Only when the text does not already end a sentence (. ! ?) and the block has 1 to 3 lines.
+function finishWithCode(para, lines, open) {
+  if (!para || /[.!?]$/.test(para.text)) return;
+  const body = [];
+  let close = open;
+  while (close < lines.length && !/^(```|~~~)/.test(lines[close].trim())) {
+    if (lines[close].trim()) body.push(lines[close].trim());
+    close++;
+  }
+  if (close >= lines.length || body.length < 1 || body.length > 3) return;
+  if (body.some((l) => l.includes('`'))) return;
+  para.text = `${para.text} \`${body.join(' && ')}\`.`;
+}
+
 // Paragraphs and list items (hard-wrapped lines joined) with the line they start on.
 function markdownBlocks(text, skipHeading) {
   const blocks = [];
   const headings = [];
   let current = null;
+  let pending = null; // paragraph closed by blank lines; a code block right after it may finish it
   let inFence = false;
   const lines = text.split(/\r?\n/);
   const flush = () => {
@@ -2170,15 +2187,19 @@ function markdownBlocks(text, skipHeading) {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     if (/^(```|~~~)/.test(trimmed)) {
+      if (!inFence) finishWithCode(current || pending, lines, i + 1);
       flush();
+      pending = null;
       inFence = !inFence;
       continue;
     }
     if (inFence) continue;
     if (!trimmed || trimmed.startsWith('<!--') || trimmed.startsWith('|')) {
+      if (current) pending = current;
       flush();
       continue;
     }
+    pending = null;
     const heading = trimmed.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
       flush();

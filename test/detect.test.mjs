@@ -1281,6 +1281,47 @@ test('hard rules: hard-wrapped sentences are joined before matching', () => {
   ]);
 });
 
+test('hard rules: a sentence that runs into a short code block finishes with the code inline', () => {
+  const dir = makeTmp();
+  write(dir, 'CONTRIBUTING.md', [
+    'If your change should appear in the changelog, it must be captured by `changeset` which is done by running',
+    '',
+    '```bash',
+    'pnpm changeset',
+    '```',
+    '',
+    'Never edit the lockfile by hand; run these in order:',
+    '',
+    '```sh',
+    'pnpm install',
+    'pnpm test',
+    '```',
+    '',
+    'Never skip the hooks; run:',
+    '',
+    '```sh',
+    'a', 'b', 'c', 'd',
+    '```',
+    '',
+    'Never push to main.',
+    '',
+    '```sh',
+    'git status',
+    '```',
+  ].join('\n'));
+  const r = detect(dir);
+  assert.deepEqual(r.hardRuleCandidates, [
+    {
+      text: 'If your change should appear in the changelog, it must be captured by `changeset` which is done by running `pnpm changeset`.',
+      source: 'CONTRIBUTING.md:1',
+    },
+    { text: 'Never edit the lockfile by hand; run these in order: `pnpm install && pnpm test`.', source: 'CONTRIBUTING.md:7' },
+    // More than three code lines, and a sentence that already ends with a period: left alone.
+    { text: 'Never skip the hooks; run:', source: 'CONTRIBUTING.md:14' },
+    { text: 'Never push to main.', source: 'CONTRIBUTING.md:23' },
+  ]);
+});
+
 test('hard rules: sections claude-setup wrote into AGENTS.md are not offered back', () => {
   const dir = makeTmp();
   write(dir, 'AGENTS.md', [

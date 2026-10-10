@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 // Phase 5 checks for the files /claude-setup wrote. Zero dependencies. Node 18+.
 //
-//   node scripts/verify.mjs [--dir <project>] <file>...
+//   node scripts/verify.mjs [--dir <project>] [--expect <path,...>] <file>...
 //
 // Paths are relative to --dir (default: current directory). Per file: line count,
 // JSON validity, secret scan, size and import rules for AGENTS.md / CLAUDE.md, and
 // safety checks for .claude/settings.json. Files whose name starts with ".env" are
-// never opened. No message ever contains file content: secret findings print the line
-// number and kind, and a JSON syntax error prints only its line and column.
+// never opened. AGENTS.md and CLAUDE.md must not link to repo paths that do not exist
+// (markdown links and backticked paths). --expect lists paths the plan says should be
+// written; each one missing under --dir is an error. No message ever contains file
+// content: secret findings print the line number and kind, and a JSON syntax error
+// prints only its line and column.
 //
 // Exit 1 when any error was found, otherwise 0.
 
@@ -18,6 +21,15 @@ import { fileURLToPath } from 'node:url';
 const MAX_AGENTS_LINES = 150;
 const MAX_CLAUDE_LINES = 200;
 const MAX_SCAN_BYTES = 2 * 1024 * 1024;
+// Link targets that are created later by design, or are local-only and may be absent.
+const LINK_EXEMPT = [/^docs\/plans(?:\/|$)/, /^\.claude\/agent-memory(?:\/|$)/, /^\.claude\/handoff\.md$/];
+const LINK_IGNORED = new Set(['CLAUDE.local.md', '.claude/settings.local.json']);
+const MD_LINK = /\[[^\]\n]*\]\(\s*([^)\s]+)(?:\s+"[^"\n]*")?\s*\)/g;
+const CODE_SPAN = /`([^`\n]+)`/g;
+// A token with no spaces, globs, placeholders, schemes or leading / or ~.
+const PATH_TOKEN = /^[\w.@-]+(?:\/[\w.@-]+)*\/?$/;
+// Markdown link targets that are not repo files: URLs, mailto:, absolute, home, globs, placeholders.
+const NOT_LOCAL = /^(?:[a-z][a-z0-9+.-]*:|\/|~)|[*<>{}$]/i;
 
 const SECRET_PATTERNS = [
   ['private key header', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
@@ -172,6 +184,33 @@ export function jsonErrorLocation(text) {
   return null;
 }
 
+// Repo-relative paths that AGENTS.md / CLAUDE.md link to, from markdown links and backticked
+// paths (a token ending in ".md", or with a "/" whose first segment exists in root, so prose
+// like `and/or` is not mistaken for a path). Fenced code is skipped. Deduplicated, in order.
+function linkedPaths(text, root) {
+  const kept = [];
+  let inFence = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+    else if (!inFence) kept.push(line);
+  }
+  const body = kept.join('\n');
+  const found = [];
+  for (const m of body.matchAll(MD_LINK)) {
+    const target = m[1].replace(/[#?].*$/, '').replace(/^\.\//, '');
+    if (target && !NOT_LOCAL.test(target)) found.push(target);
+  }
+  for (const m of body.matchAll(CODE_SPAN)) {
+    const token = m[1].trim();
+    if (!PATH_TOKEN.test(token)) continue;
+    const rel = token.replace(/^\.\//, '');
+    const first = rel.split('/')[0];
+    const pathLike = rel.endsWith('.md') || (rel.includes('/') && (!root || fs.existsSync(path.join(root, first))));
+    if (pathLike) found.push(rel);
+  }
+  return [...new Set(found)];
+}
+
 function countLines(text) {
   if (text === '') return 0;
   const n = text.split('\n').length;
@@ -310,6 +349,12 @@ export function verifyFiles(dir, files) {
         add(sibling ? 'error' : 'warning', 'first non-empty line is not "@AGENTS.md"' + (sibling ? ' (AGENTS.md exists in this directory)' : ''));
       }
     }
+    if (name === 'AGENTS.md' || name === 'CLAUDE.md') {
+      for (const target of linkedPaths(text, dir)) {
+        if (LINK_IGNORED.has(target) || LINK_EXEMPT.some((re) => re.test(target))) continue;
+        if (!fs.existsSync(path.resolve(dir, target))) add('error', `links to ${target}, which does not exist`);
+      }
+    }
 
     const normalized = file.split(path.sep).join('/');
     if (normalized === '.claude/settings.json' || normalized.endsWith('/.claude/settings.json')) {
@@ -319,16 +364,28 @@ export function verifyFiles(dir, files) {
   return findings;
 }
 
+// Each expected path must exist under dir. Findings use the pseudo-file "--expect".
+export function checkExpected(dir, expect) {
+  return expect
+    .filter((p) => !fs.existsSync(path.resolve(dir, p)))
+    .map((p) => ({ level: 'error', file: '--expect', message: `expected ${p} from the plan, but it was not written` }));
+}
+
+const splitList = (value) => value.split(',').map((s) => s.trim()).filter(Boolean);
+
 export function parseArgs(argv) {
   let dir = '.';
+  let expect = [];
   const files = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--dir') dir = argv[++i] ?? '.';
     else if (arg.startsWith('--dir=')) dir = arg.slice('--dir='.length);
+    else if (arg === '--expect') expect = splitList(argv[++i] ?? '');
+    else if (arg.startsWith('--expect=')) expect = splitList(arg.slice('--expect='.length));
     else files.push(arg);
   }
-  return { dir, files };
+  return { dir, files, expect };
 }
 
 export function formatReport(findings, fileCount) {
@@ -349,13 +406,14 @@ function isEntryPoint() {
 }
 
 function main() {
-  const { dir, files } = parseArgs(process.argv.slice(2));
-  if (files.length === 0) {
-    process.stderr.write('usage: node verify.mjs [--dir <project>] <file>...\n');
+  const { dir, files, expect } = parseArgs(process.argv.slice(2));
+  if (files.length === 0 && expect.length === 0) {
+    process.stderr.write('usage: node verify.mjs [--dir <project>] [--expect <path,...>] <file>...\n');
     process.exitCode = 2;
     return;
   }
-  const { text, errors } = formatReport(verifyFiles(dir, files), files.length);
+  const findings = [...verifyFiles(dir, files), ...checkExpected(dir, expect)];
+  const { text, errors } = formatReport(findings, files.length);
   process.stdout.write(text);
   process.exitCode = errors > 0 ? 1 : 0;
 }

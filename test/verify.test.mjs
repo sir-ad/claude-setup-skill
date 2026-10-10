@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { verifyFiles, scanForSecrets } from '../scripts/verify.mjs';
+import { verifyFiles, scanForSecrets, parseArgs } from '../scripts/verify.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, '..', 'scripts', 'verify.mjs');
@@ -354,4 +354,84 @@ test('no files is a usage error; --dir=value form works', () => {
   const res = spawnSync(process.execPath, [SCRIPT, `--dir=${dir}`, 'AGENTS.md'], { encoding: 'utf8' });
   assert.equal(res.status, 0);
   assert.match(res.stdout, /AGENTS\.md: 1 line\n/);
+});
+
+test('AGENTS.md and CLAUDE.md: dangling links and backticked paths are errors', () => {
+  const dir = makeTmp();
+  write(dir, 'docs/architecture.md', '# Arch\n');
+  write(dir, '.claude/agents/explorer.md', '# Explorer\n');
+  write(dir, 'docs/plans/.keep', '');
+  write(dir, 'AGENTS.md', [
+    'See [architecture](docs/architecture.md) and [config](docs/config.md).',
+    'Agents: `.claude/agents/explorer.md`, `.claude/agents/reviewer.md`.',
+    'Also `docs/architecture.md#intro` and [top](#top).',
+  ].join('\n'));
+  const res = run(dir, ['AGENTS.md']);
+  assert.equal(res.status, 1);
+  const errors = levels(verifyFiles(dir, ['AGENTS.md']), 'error');
+  assert.deepEqual(errors.map((e) => [e.file, e.message]), [
+    ['AGENTS.md', 'links to docs/config.md, which does not exist'],
+    ['AGENTS.md', 'links to .claude/agents/reviewer.md, which does not exist'],
+  ]);
+  assert.match(res.stdout, /error {3}AGENTS\.md: links to docs\/config\.md, which does not exist/);
+});
+
+test('AGENTS.md link check: existing links, exempt paths, URLs, globs, placeholders and code are not errors', () => {
+  const dir = makeTmp();
+  write(dir, 'docs/guide.md', '# Guide\n');
+  write(dir, 'CLAUDE.local.md', 'private\n');
+  write(dir, 'AGENTS.md', [
+    'Good: [guide](./docs/guide.md) and `docs/guide.md` and `docs/`.',
+    'Created later: `docs/plans/`, [plan](docs/plans/2026-01.md), `.claude/handoff.md`, `.claude/agent-memory/notes.md`.',
+    'Not files: [site](https://example.com/docs/x.md), [mail](mailto:a@b.dev), `~/notes/x.md`, `/etc/hosts`.',
+    'Not paths: `docs/*.md`, `docs/<name>.md`, `pnpm test`, `CLAUDE.local.md`, `.claude/settings.local.json`.',
+    '```',
+    'See `docs/never-written.md` in this example.',
+    '```',
+  ].join('\n'));
+  assert.deepEqual(levels(verifyFiles(dir, ['AGENTS.md']), 'error'), []);
+  assert.equal(run(dir, ['AGENTS.md']).status, 0);
+});
+
+test('link check runs only on AGENTS.md and CLAUDE.md', () => {
+  const dir = makeTmp();
+  write(dir, 'README.md', 'See [missing](docs/missing.md) and `docs/gone.md`.\n');
+  write(dir, 'CLAUDE.md', '@AGENTS.md\nSee `docs/gone.md`.\n');
+  write(dir, 'AGENTS.md', '# Project\n');
+  const findings = verifyFiles(dir, ['README.md', 'CLAUDE.md']);
+  assert.deepEqual(levels(findings, 'error').map((e) => [e.file, e.message]), [
+    ['CLAUDE.md', 'links to docs/gone.md, which does not exist'],
+  ]);
+});
+
+test('--expect: each missing planned path is an error; present paths pass', () => {
+  const dir = makeTmp();
+  write(dir, 'docs/config.md', '# Config\n');
+  write(dir, 'AGENTS.md', '# Project\n');
+  const missing = spawnSync(process.execPath, [SCRIPT, '--dir', dir, '--expect', 'docs/config.md,docs/api.md, docs/plans/x.md'], { encoding: 'utf8' });
+  assert.equal(missing.status, 1);
+  assert.match(missing.stdout, /error {3}--expect: expected docs\/api\.md from the plan, but it was not written/);
+  assert.match(missing.stdout, /expected docs\/plans\/x\.md from the plan, but it was not written/);
+  assert.doesNotMatch(missing.stdout, /expected docs\/config\.md/);
+
+  const ok = spawnSync(process.execPath, [SCRIPT, `--dir=${dir}`, '--expect=docs/config.md', 'AGENTS.md'], { encoding: 'utf8' });
+  assert.equal(ok.status, 0);
+  assert.match(ok.stdout, /verify: 1 file, 0 errors, 0 warnings/);
+});
+
+test('--expect works without files, and parseArgs reads both forms', () => {
+  const dir = makeTmp();
+  assert.equal(run(dir, []).status, 2, 'no files and no expect is a usage error');
+  const onlyExpect = spawnSync(process.execPath, [SCRIPT, '--dir', dir, '--expect', 'AGENTS.md'], { encoding: 'utf8' });
+  assert.equal(onlyExpect.status, 1);
+  assert.deepEqual(parseArgs(['--dir', 'p', '--expect', 'a.md, b/ ,', 'AGENTS.md']), { dir: 'p', files: ['AGENTS.md'], expect: ['a.md', 'b/'] });
+  assert.deepEqual(parseArgs(['--expect=x.md']), { dir: '.', files: [], expect: ['x.md'] });
+});
+
+test('AGENTS.md: slash words in prose are not treated as paths', () => {
+  const dir = makeTmp();
+  write(dir, 'src/index.ts', 'export {};\n');
+  write(dir, 'AGENTS.md', 'Use `and/or` and `read/write` freely. Code lives in `src/` and `src/index.ts`.\n');
+  const errors = levels(verifyFiles(dir, ['AGENTS.md']), 'error');
+  assert.deepEqual(errors, []);
 });
