@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-10
+
 ### Added
 
 - AGENTS.md is the shared source of truth for every agent. CLAUDE.md imports it with `@AGENTS.md` and keeps only Claude-only lines. Claude Code reads AGENTS.md only when no CLAUDE.md exists, so the import is required.
