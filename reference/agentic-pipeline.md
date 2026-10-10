@@ -13,7 +13,7 @@ One main agent does the work. It has three helpers and two skills.
 | `.claude/agents/explorer.md` | Read-only search. Reads `docs/project-structure.md` first. Returns `file:line` findings. | Read, Grep, Glob | haiku |
 | `.claude/agents/test-runner.md` | Runs the detected test and lint commands. Returns only failures. | Bash (scoped), Read, Grep | haiku |
 | `.claude/agents/<lang>-reviewer.md` | Reviews a diff against the repo's own rules. Keeps `memory: project`. | Read, Grep, Glob | inherit |
-| `.claude/skills/plan/SKILL.md` | `/plan <task>`: explore, write a plan file, stop for approval. | | |
+| `.claude/skills/plan-task/SKILL.md` | `/plan-task <task>`: explore, write a plan file, stop for approval. | | |
 | `.claude/skills/handoff/SKILL.md` | `/handoff`: write `.claude/handoff.md`. | | |
 
 None of the generated subagents has the `Agent` tool, so they cannot spawn more subagents. Both skills set `disable-model-invocation: true` because they write files.
@@ -31,7 +31,7 @@ Left: the named pattern. Right: what a generated project uses.
 
 | Pattern | Source | Claude Code mechanism |
 |---|---|---|
-| Prompt chaining | [Anthropic](https://www.anthropic.com/engineering/building-effective-agents) | Numbered steps in a skill. `/plan` runs explore, write plan, stop. The gate between steps is a file or a human approval. |
+| Prompt chaining | [Anthropic](https://www.anthropic.com/engineering/building-effective-agents) | Numbered steps in a skill. `/plan-task` runs explore, write plan, stop. The gate between steps is a file or a human approval. |
 | Routing | Anthropic | Subagent `description` fields. Claude picks a subagent from the request and the descriptions, so write them as routing contracts: specific, and different from their peers. "use proactively" encourages delegation. ([sub-agents](https://code.claude.com/docs/en/sub-agents#understand-automatic-delegation)) |
 | Parallelization | Anthropic | Several read-only subagents in one turn, each with its own question, sharing no state. The main agent merges the answers. Sectioning only. No voting by default. |
 | Orchestrator-workers | Anthropic | The main agent, with explorer and test-runner as workers. Anthropic lists it as the fit for multi-file coding changes. |
@@ -112,7 +112,7 @@ The matcher includes `compact` because `PreCompact` cannot add context. It can o
 
 Anthropic's harness for long tasks used a feature list, a progress file and a commit per change. Agents did one feature at a time, left the tree in a clean state, and started each session by reading the git log and the progress file. ([long-running harness](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)) The generated version:
 
-1. `/plan` writes `docs/plans/<yyyy-mm-dd>-<slug>.md`: goal, context with `file:line`, steps as a checklist, verification, risks.
+1. `/plan-task` writes `docs/plans/<yyyy-mm-dd>-<slug>.md`: goal, context with `file:line`, steps as a checklist, verification, risks.
 2. A person approves the plan.
 3. The main agent takes one unchecked step, implements it, runs the verify command, ticks the box and commits.
 4. If a step fails verification, fix and rerun at most 3 times. Then stop and report what failed. Do not start the next step.

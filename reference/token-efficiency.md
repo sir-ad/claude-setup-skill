@@ -53,6 +53,6 @@ The cache prefix is system prompt, then CLAUDE.md, memory and unscoped rules, th
 | Isolate test output | `.claude/agents/test-runner.md` (haiku, failures only) |
 | Cheap review memory | `<lang>-reviewer.md` with `memory: project`, stored in `.claude/agent-memory/` |
 | Read by range, `/clear`, `/compact <focus>`, `/context` | The Claude section of `CLAUDE.md` |
-| State outside the context | `/plan` writes `docs/plans/`, `/handoff` writes `.claude/handoff.md` |
+| State outside the context | `/plan-task` writes `docs/plans/`, `/handoff` writes `.claude/handoff.md` |
 | Reload after compaction | Optional `SessionStart` hook, only with a yes |
 | No agent teams | Not generated. The skill mentions the cost if asked. |
