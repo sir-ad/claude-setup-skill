@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
 ### Added
 
 - `scripts/graph.mjs` builds a module-level import graph for JS/TS, Python, Go and Rust. It ranks modules, finds entry points, and prints a Mermaid graph and a budgeted repo map with `--markdown`. It has no dependencies and never opens `.env` files.
@@ -20,6 +22,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Opt-in extras, each a separate yes in the plan: a SessionStart hook that prints `.claude/handoff.md`, a code-search MCP entry in `.mcp.json`, and `.codex/config.toml`.
 - Flags `--skip-docs` and `--skip-pipeline`.
 - `test/consistency.test.mjs` checks that README, SKILL.md, the templates and the adapters reference agree.
+- `verify.mjs` checks that links in AGENTS.md and CLAUDE.md point to files that exist. `--expect <paths>` turns any planned file that was not written into an error. Phase 5 passes the plan's file list.
 
 ### Changed
 
@@ -28,6 +31,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - One formatter-hook recipe, the script in `reference/claude-code.md`.
 - All templates allow only read-only git (`diff`, `status`, `log`, `show`) and use the space-glob form for install and test rules, so `pnpm install --frozen-lockfile` matches.
 - README says commands are traced to your scripts and CI, not verified by running them. It separates what scripts enforce from what the skill instructs. Version notes in `knowledge/` cite sources; the one-line notes in AGENTS.md do not.
+- The skill writes `.claude/` first and AGENTS.md and CLAUDE.md last. They mention only files that were written or already exist. Refused files are listed under "Files to create by hand" with their content.
+- `docs/config.md` cites where code reads each variable, or says that no code reads it. `docs/architecture.md` lists an external service only when code calls it, with a `path:line` citation.
+- The explorer page shows the new files and flags.
 
 ### Fixed
 
@@ -37,6 +43,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - `verify.mjs` detects Anthropic, OpenAI, Stripe, Google, GitHub, GitLab, Slack, npm and AWS keys, JWTs and credentials in URLs. Invalid JSON reports only a line and column. It errors on unrestricted `Bash` allows and a missing `@AGENTS.md` import.
 - `sync-rules.mjs` reports a legacy `.clinerules` file as a conflict instead of crashing. `--check` ignores CRLF differences.
 - The `.gitignore` plan listed two entries while Phase 4 appended three.
+- A hard-rule sentence that runs into a short code block is kept whole.
 
 ## [0.2.0] - 2026-10-10
 

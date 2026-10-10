@@ -1,7 +1,7 @@
 {
   "name": "@claude-setup-skill/install",
-  "version": "0.2.0",
-  "description": "Sets up any repo for coding agents: AGENTS.md (real commands, hard rules, version notes) plus Claude Code, Codex, Cursor, Copilot, Gemini CLI and Aider config.",
+  "version": "0.3.0",
+  "description": "Sets up any repo for coding agents: AGENTS.md, repo graph and docs, rules, subagents and plan/handoff skills, plus Codex, Cursor, Copilot and Gemini config.",
   "bin": {
     "claude-setup-install": "./bin/install.js"
   },
@@ -47,7 +47,12 @@
     "windsurf",
     "cline",
     "developer-experience",
-    "project-setup"
+    "project-setup",
+    "repo-map",
+    "code-graph",
+    "subagents",
+    "agentic-workflow",
+    "adr"
   ],
   "repository": {
     "type": "git",
