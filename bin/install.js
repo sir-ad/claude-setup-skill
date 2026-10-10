@@ -20,12 +20,13 @@ const LEGACY_PREFIX = `${SKILL_NAME}.bak.`;
 
 // Whitelist of items the runtime needs. Anything else (bin/, package.json,
 // .github/, etc.) is left out of the installed skill. Claude Code only reads
-// SKILL.md and the templates/knowledge/reference/scripts/examples/assets it references.
+// SKILL.md and the templates/knowledge/reference/blueprints/scripts/examples/assets it references.
 const ITEMS = [
   'SKILL.md',
   'templates',
   'knowledge',
   'reference',
+  'blueprints',
   'scripts',
   'examples',
   'assets',

@@ -13,10 +13,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { detect } from './detect.mjs';
+import { buildGraph, renderMarkdown } from './graph.mjs';
 
 const SKILL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-const REFERENCES = ['writing-agent-files.md', 'claude-code.md', 'agent-adapters.md'];
 
 // primary + layout -> template. Anything not listed uses generic.
 export function chooseTemplate(primary, layout) {
@@ -122,27 +121,93 @@ function section(title, rel) {
   return `## ${title}\n${body === null ? `(missing: ${rel} could not be read)` : body}`;
 }
 
+// Pieces that follow the detector-selected template and notes, in output order.
+const PRACTICES = 'knowledge/practices.md';
+const REFERENCES = [
+  'writing-agent-files.md', 'claude-code.md', 'agent-adapters.md',
+  'agentic-pipeline.md', 'token-efficiency.md', 'code-search.md',
+];
+// Above this many lines the injected context starts to crowd out the task itself.
+const MAX_CONTEXT_LINES = 2200;
+
+// blueprints/**/*.md, README first, then by path.
+function listBlueprints() {
+  const out = [];
+  const walkDir = (rel) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(path.join(SKILL_ROOT, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const child = path.posix.join(rel, entry.name);
+      if (entry.isDirectory()) walkDir(child);
+      else if (entry.isFile() && entry.name.endsWith('.md')) out.push(child);
+    }
+  };
+  walkDir('blueprints');
+  const readme = 'blueprints/README.md';
+  return out.sort((a, b) => Number(b === readme) - Number(a === readme) || (a < b ? -1 : a > b ? 1 : 0));
+}
+
+// Drops the "## Current versions" table from a knowledge note; version notes and the default
+// toolchain stay. Used only when the context would otherwise be too large.
+export function withoutCurrentVersions(body) {
+  const lines = body.split('\n');
+  const start = lines.findIndex((l) => /^##\s+Current versions\b/.test(l));
+  if (start < 0) return body;
+  let end = lines.findIndex((l, i) => i > start && /^##\s/.test(l));
+  if (end < 0) end = lines.length;
+  return [...lines.slice(0, start), '(Current versions table omitted to keep this context small.)', '', ...lines.slice(end)].join('\n');
+}
+
+function repoGraphSection(dir) {
+  try {
+    return `## Repo graph\n${renderMarkdown(buildGraph(dir), { maxNodes: 25 }).replace(/\s+$/, '')}`;
+  } catch (err) {
+    return `## Repo graph\n(repo graph unavailable: ${err && err.message ? err.message : err})`;
+  }
+}
+
+function assemble(dir, detection, template, knowledge, trimVersions) {
+  const json = JSON.stringify(detection, null, 2);
+  const fence = fenceFor(json);
+  const knowledgeSection = (rel) => {
+    const raw = section(`Knowledge: ${rel}`, rel);
+    return trimVersions ? withoutCurrentVersions(raw) : raw;
+  };
+  const sections = [
+    { name: 'Detection', text: `## Detection\n${fence}json\n${json}\n${fence}` },
+    { name: `Template: templates/${template}.md`, text: section(`Template: templates/${template}.md`, `templates/${template}.md`) },
+    ...knowledge.map((file) => ({ name: `Knowledge: knowledge/${file}`, text: knowledgeSection(`knowledge/${file}`) })),
+    { name: 'Repo graph', text: repoGraphSection(dir) },
+    { name: `Knowledge: ${PRACTICES}`, text: knowledgeSection(PRACTICES) },
+    ...listBlueprints().map((rel) => ({ name: `Blueprint: ${rel}`, text: section(`Blueprint: ${rel}`, rel) })),
+    ...REFERENCES.map((file) => ({ name: `Reference: reference/${file}`, text: section(`Reference: reference/${file}`, `reference/${file}`) })),
+  ];
+  const header = (size) => [
+    '# claude-setup context',
+    `Template: ${template} (reason: primary=${detection.primary}, layout=${detection.layout})`,
+    `Knowledge: ${knowledge.length ? knowledge.join(', ') : 'none'}`,
+    `Sections: ${sections.map((x) => x.name).join(', ')}`,
+    `Size: ${size} lines`,
+    '',
+  ].join('\n');
+  const body = `${sections.map((x) => x.text).join('\n\n')}\n`;
+  // The size line counts itself: the header has a fixed number of lines whatever the number is.
+  const lineCount = `${header(0)}\n${body}`.split('\n').length - 1;
+  return `${header(lineCount)}\n${body}`;
+}
+
 export function buildContext(dirArg = process.cwd()) {
   const dir = path.resolve(dirArg);
   const detection = detect(dir);
   const template = chooseTemplate(detection.primary, detection.layout);
   const knowledge = chooseKnowledge(detection, dir);
-
-  const json = JSON.stringify(detection, null, 2);
-  const fence = fenceFor(json);
-  const parts = [
-    '# claude-setup context',
-    `Template: ${template} (reason: primary=${detection.primary}, layout=${detection.layout})`,
-    `Knowledge: ${knowledge.length ? knowledge.join(', ') : 'none'}`,
-    '',
-    '## Detection',
-    `${fence}json\n${json}\n${fence}`,
-    '',
-    section(`Template: templates/${template}.md`, `templates/${template}.md`),
-    ...knowledge.map((file) => `\n${section(`Knowledge: knowledge/${file}`, `knowledge/${file}`)}`),
-    ...REFERENCES.map((file) => `\n${section(`Reference: reference/${file}`, `reference/${file}`)}`),
-  ];
-  return `${parts.join('\n')}\n`;
+  const full = assemble(dir, detection, template, knowledge, false);
+  if (full.split('\n').length - 1 <= MAX_CONTEXT_LINES) return full;
+  return assemble(dir, detection, template, knowledge, true);
 }
 
 function isEntryPoint() {

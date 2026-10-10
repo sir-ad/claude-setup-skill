@@ -60,7 +60,7 @@ test('fresh install copies the runtime items and nothing else', () => {
   const r = install(home);
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^installed: .*claude-setup \(\d+ items\)/m);
-  for (const item of ['SKILL.md', 'templates/node-single.md', 'knowledge', 'reference', 'scripts/verify.mjs', 'LICENSE']) {
+  for (const item of ['SKILL.md', 'templates/node-single.md', 'knowledge', 'reference', 'blueprints/README.md', 'scripts/verify.mjs', 'LICENSE']) {
     assert.ok(exists(path.join(target(home), item)), item);
   }
   for (const item of ['bin', 'package.json', 'test', 'install.sh', '.github']) {

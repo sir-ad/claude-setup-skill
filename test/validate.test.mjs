@@ -140,3 +140,45 @@ test('an empty template and a template without a heading fail; an over-long one 
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /WARN\s+templates\/generic\.md: \d+ lines \(over 300\)/);
 });
+
+test('blueprints get the heading and placeholder checks', () => {
+  const dir = copyRepo();
+  fs.writeFileSync(path.join(dir, 'blueprints', 'docs', 'config.md'), '');
+  edit(dir, 'blueprints/rules/testing.md', (t) => `intro without heading\n${t}`);
+  edit(dir, 'blueprints/skills/handoff.md', (t) => `${t.trimEnd()}\n\nTODO: finish\n`);
+  const r = validate(dir);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /FAIL\s+blueprints\/docs\/config\.md: file is empty/);
+  assert.match(r.out, /FAIL\s+blueprints\/rules\/testing\.md: must start with a "# " heading/);
+  assert.match(r.out, /FAIL\s+blueprints\/skills\/handoff\.md:\d+: placeholder "TODO" found/);
+});
+
+test('blueprints must ship: missing from "files" or the installer ITEMS fails', () => {
+  const noFiles = copyRepo();
+  edit(noFiles, 'package.json', (t) => {
+    const pkg = JSON.parse(t);
+    pkg.files = pkg.files.filter((f) => f !== 'blueprints');
+    return JSON.stringify(pkg, null, 2);
+  });
+  const a = validate(noFiles);
+  assert.equal(a.code, 1, a.out);
+  assert.match(a.out, /FAIL\s+"blueprints" is missing from package\.json "files"/);
+
+  const noItems = copyRepo();
+  edit(noItems, 'bin/install.js', (t) => t.replace(/\n\s*'blueprints',/, ''));
+  const b = validate(noItems);
+  assert.equal(b.code, 1, b.out);
+  assert.match(b.out, /FAIL\s+"blueprints" is missing from bin\/install\.js ITEMS/);
+});
+
+test('a blueprints path in SKILL.md that does not exist fails; placeholders are ignored', () => {
+  const dir = copyRepo();
+  edit(dir, 'SKILL.md', (t) => `${t.trimEnd()}\n\nSee blueprints/docs/no-such-blueprint.md and blueprints/skills/<name>.md.\n`);
+  const r = validate(dir);
+  assert.equal(r.code, 1, r.out);
+  assert.deepEqual(failures(r.out), ['FAIL  SKILL.md mentions blueprints/docs/no-such-blueprint.md, which does not exist']);
+
+  const ok = copyRepo();
+  edit(ok, 'SKILL.md', (t) => `${t.trimEnd()}\n\nSee blueprints/README.md and blueprints/skills/plan-task.md.\n`);
+  assert.equal(validate(ok).code, 0);
+});
