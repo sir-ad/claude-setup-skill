@@ -5,10 +5,13 @@
 // so this script reads them and prints them whole.
 //
 //   node scripts/context.mjs [dir]                 core context (default dir: current directory)
-//   node scripts/context.mjs [dir] --full          core plus all blueprints, references and practices
+//   node scripts/context.mjs [dir] --full          core plus all blueprints, references, practices and
+//                                                  the router config, with every knowledge note whole
 //   node scripts/context.mjs --show <path>...     print guidance files from blueprints/, reference/,
 //                                                  knowledge/ or templates/ (several per call)
 //
+// The core keeps only the version notes whose gate holds for the detected versions, drops the
+// "Current versions" tables, and omits the router config (scripts/roster.mjs writes it to .claude/router.json).
 // Always exits 0. A missing skill file becomes a one-line note.
 
 import fs from 'node:fs';
@@ -128,8 +131,7 @@ function section(title, rel) {
 // Guidance that is not injected by default: fetched on demand with `--show <path>...`.
 const PRACTICES = 'knowledge/practices.md';
 const ALWAYS_REFERENCE = 'reference/writing-agent-files.md'; // short and needed for every file written
-// Above this many lines the injected context starts to crowd out the task itself.
-const MAX_CORE_LINES = 1200;
+// Above this many lines the --full context starts to crowd out the task itself. The core is sized by its filters instead.
 const MAX_FULL_LINES = 3200;
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
@@ -183,6 +185,159 @@ export function withoutCurrentVersions(body) {
   return [...lines.slice(0, start), '(Current versions table omitted to keep this context small.)', '', ...lines.slice(end)].join('\n');
 }
 
+// Removes one `## ` section (its heading and body, up to the next `## ` heading) from a note.
+function removeSection(body, heading) {
+  const lines = body.split('\n');
+  const start = lines.findIndex((l) => heading.test(l));
+  if (start < 0) return body;
+  let end = lines.findIndex((l, i) => i > start && NEXT_SECTION.test(l));
+  if (end < 0) end = lines.length;
+  return [...lines.slice(0, start), ...lines.slice(end)].join('\n');
+}
+
+const CURRENT_VERSIONS = /^##\s+Current versions\b/;
+const DEFAULT_TOOLCHAIN = /^##\s+Default toolchain\b/;
+const VERSION_NOTES = /^##\s+Version notes\s*$/;
+const NEXT_SECTION = /^##\s/;
+
+// ---------------------------------------------------------------------------
+// Version gates. A knowledge note's "## Version notes" bullet starts with a gate, `- **<gate>**: ...`.
+// The core keeps a bullet only when its gate holds for the detected tools and versions.
+// ---------------------------------------------------------------------------
+
+// Gate tool names that the detector spells differently. The last two are free-text gates whose tool is named
+// in full: "pnpm workspaces" holds when pnpm is detected, and "Node type stripping (any version)" when Node is.
+const GATE_ALIASES = {
+  'go.mod go line': 'go', edition: 'rust', '.net': 'dotnet', 'shadcn cli': 'shadcn', 'spring boot': 'spring-boot',
+  'pnpm workspaces': 'pnpm', 'node type stripping': 'node',
+};
+
+// Lowercase, no backticks, no `@scope/` prefix, no `.js` suffix. Gate names and detector names both go through it.
+const normName = (text) => String(text).replace(/`/g, '').trim().toLowerCase().replace(/\s+/g, ' ')
+  .replace(/^@[^/]+\//, '').replace(/\.js$/, '');
+
+const BARE_VERSION = /^\s*v?\d+(?:\.\d+)*\s*$/;
+// The first dotted number in a version or range string, or null.
+const numericPrefix = (text) => {
+  const m = /v?(\d+(?:\.\d+)*)/.exec(String(text ?? ''));
+  return m ? m[1] : null;
+};
+
+// Dotted version numbers compared numerically, component by component (`22.18` < `22.100`).
+export function compareVersions(a, b) {
+  const x = a.split('.').map(Number);
+  const y = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d !== 0) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
+// Map of tool key -> { version, exact } from the detection JSON. `exact` means the version is a pin, not a
+// range's lower bound; `<`, `<=` and `=` gates need an exact version, because a lower bound proves nothing about them.
+// Scoped packages also answer to their scope name (`@trpc/server` for `trpc`), but never `@types/*`.
+export function detectedTools(detection) {
+  const direct = new Map();
+  const scoped = new Map();
+  const put = (map, name, version, exact) => {
+    const key = normName(name);
+    if (!key) return;
+    const prev = map.get(key);
+    if (!prev || (version && !prev.version)) map.set(key, { version, exact: Boolean(version && exact) });
+  };
+  for (const [lang, value] of Object.entries(detection.languageVersion || {})) {
+    if (lang === 'rust' && value && typeof value === 'object') {
+      if (value.edition) put(direct, 'rust', numericPrefix(value.edition), BARE_VERSION.test(String(value.edition)));
+      if (value.rustVersion) put(direct, 'rustc', numericPrefix(value.rustVersion), BARE_VERSION.test(String(value.rustVersion)));
+    } else if (typeof value === 'string') {
+      put(direct, lang, numericPrefix(value), BARE_VERSION.test(value));
+    } else {
+      put(direct, lang, null, false);
+    }
+  }
+  if (detection.packageManager) {
+    const pmv = detection.packageManagerVersion;
+    put(direct, detection.packageManager, numericPrefix(pmv), BARE_VERSION.test(String(pmv ?? '')));
+  }
+  for (const lang of detection.languages || []) put(direct, lang.name, null, false);
+  for (const [flag, on] of Object.entries(detection.infra || {})) if (on === true) put(direct, flag, null, false);
+  for (const f of detection.frameworks || []) {
+    if (!f.name || /^@types\//.test(f.name)) continue;
+    const version = numericPrefix(f.version);
+    const exact = ['', '=', '=='].includes(String(f.range || '').trim());
+    put(direct, f.name, version, exact);
+    const scope = /^@([^/]+)\//.exec(f.name);
+    if (scope) put(scoped, scope[1], version, exact);
+  }
+  for (const [key, entry] of scoped) if (!direct.has(key)) direct.set(key, entry);
+  return direct;
+}
+
+// One clause of a gate: { tool, op, version }, or { tool, op: null } for presence only, or null when unparseable.
+export function parseClause(text) {
+  const s = String(text).trim();
+  const cmp = /^(.+?)\s*(>=|<=|==|=|>|<)\s*"?v?(\d+(?:\.\d+)*)"?(?=\s|$|\()/.exec(s);
+  if (cmp) return { tool: normName(cmp[1]), op: cmp[2] === '==' ? '=' : cmp[2], version: cmp[3] };
+  const orOlder = /^(.+?)\s+(\d+(?:\.\d+)*)\s+or older$/i.exec(s);
+  if (orOlder) return { tool: normName(orOlder[1]), op: '<=', version: orOlder[2] };
+  // "<tool>" and "<tool> (any ...)" only. Other parentheticals ("Symfony 7.4 (LTS)") are not parseable.
+  const bare = s.replace(/\s*\(any[^()]*\)\s*$/i, '');
+  if (!bare || /[()]/.test(bare)) return null;
+  return { tool: normName(bare), op: null };
+}
+
+// True when every clause of the gate holds for the detected tools. Unparseable or undetected tools fail.
+export function gateHolds(gate, tools) {
+  return String(gate).split(/\s+and\s+/i).every((part) => {
+    const clause = parseClause(part);
+    if (!clause) return false;
+    const entry = tools.get(GATE_ALIASES[clause.tool] || clause.tool);
+    if (!entry) return false;
+    if (!clause.op) return true;
+    if (!entry.version) return false;
+    if (clause.op !== '>=' && clause.op !== '>' && !entry.exact) return false;
+    const cmp = compareVersions(entry.version, clause.version);
+    switch (clause.op) {
+      case '>=': return cmp >= 0;
+      case '>': return cmp > 0;
+      case '<=': return cmp <= 0;
+      case '<': return cmp < 0;
+      case '=': return cmp === 0;
+      default: return false;
+    }
+  });
+}
+
+const gateOf = (line) => {
+  const m = /^- \*\*(.+?)\*\*:/.exec(line);
+  return m ? m[1].trim() : null;
+};
+
+// Keeps the version bullets whose gate holds. The section gets one count line under its bullets:
+// how many were kept, out of how many, and where the full note is.
+export function filterVersionNotes(body, tools, rel) {
+  const lines = body.split('\n');
+  const start = lines.findIndex((l) => VERSION_NOTES.test(l));
+  if (start < 0) return body;
+  let end = lines.findIndex((l, i) => i > start && NEXT_SECTION.test(l));
+  if (end < 0) end = lines.length;
+  const prose = [];
+  const items = [];
+  for (const line of lines.slice(start + 1, end)) {
+    if (line.startsWith('- ')) items.push({ gate: gateOf(line), lines: [line] });
+    else if (line.trim() === '') continue;
+    else if (items.length) items[items.length - 1].lines.push(line);
+    else prose.push(line);
+  }
+  const kept = items.filter((item) => item.gate !== null && gateHolds(item.gate, tools));
+  const section = [lines[start], ''];
+  if (prose.length) section.push(...prose, '');
+  for (const item of kept) section.push(...item.lines);
+  section.push('', `Kept ${kept.length} of ${items.length} version notes for detected versions. Full note: --show ${rel}`);
+  return [...lines.slice(0, start), ...section, '', ...lines.slice(end)].join('\n');
+}
+
 const errorText = (err) => (err && err.message ? err.message : String(err));
 
 // JSON with two-space indentation. Arrays of scalars and small flat objects stay on one line
@@ -210,16 +365,25 @@ const LIST_CAPS = {
   'commands.other': 8, 'commands.*': 12, hardRuleCandidates: 12, workspaces: 40, docs: 20,
   agentConfigs: 30, ci: 15, generated: 15, frameworks: 40, languages: 8,
 };
+// Tighter caps for the compact core, used only when the core is over its byte budget.
+const COMPACT_CAPS = {
+  'commands.other': 3, 'commands.*': 4, hardRuleCandidates: 6, workspaces: 20, docs: 8,
+  agentConfigs: 10, ci: 5, generated: 6, frameworks: 20, languages: 4,
+};
+// The compact core lists this many files of the repo map; the rest stay one command away.
+const COMPACT_REPO_MAP = 20;
+// The core is kept under this many bytes; above it, the compact level applies.
+export const CORE_MAX_BYTES = 30000;
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 // Drops nulls, empty strings, empty lists and objects, and false flags; caps long lists and
 // records how many items were cut under `_omitted`.
-export function compactDetection(detection) {
+export function compactDetection(detection, caps = LIST_CAPS) {
   const omitted = {};
   const capFor = (key) => {
-    if (LIST_CAPS[key]) return LIST_CAPS[key];
-    return key.startsWith('commands.') ? LIST_CAPS['commands.*'] : 0;
+    if (caps[key]) return caps[key];
+    return key.startsWith('commands.') ? caps['commands.*'] : 0;
   };
   const keep = (v) => !(v === null || v === undefined || v === '' || v === false
     || (Array.isArray(v) && v.length === 0) || (isPlainObject(v) && Object.keys(v).length === 0));
@@ -257,10 +421,16 @@ function computeGraph(dir) {
   }
 }
 
-function repoGraphSection({ graph, error }) {
+const GRAPH_PATH = path.join(path.dirname(SCRIPT_PATH), 'graph.mjs');
+
+function repoGraphSection({ graph, error }, { compact = false, dir = '.' } = {}) {
   if (!graph) return `## Repo graph\n(repo graph unavailable: ${error})`;
   try {
-    return `## Repo graph\n${renderMarkdown(graph, { maxNodes: 25 }).replace(/\s+$/, '')}`;
+    const map = graph.repoMap || [];
+    const shown = compact && map.length > COMPACT_REPO_MAP ? { ...graph, repoMap: map.slice(0, COMPACT_REPO_MAP) } : graph;
+    const more = map.length - shown.repoMap.length;
+    const note = more > 0 ? `\n(${more} more files with exported symbols are left out. Full map: node "${GRAPH_PATH}" "${dir}" --markdown)` : '';
+    return `## Repo graph\n${renderMarkdown(shown, { maxNodes: 25 }).replace(/\s+$/, '')}${note}`;
   } catch (err) {
     return `## Repo graph\n(repo graph unavailable: ${errorText(err)})`;
   }
@@ -316,7 +486,14 @@ export function firstSentence(text) {
   return '';
 }
 
-function guidanceIndex(injected) {
+// Shortens a sentence to `max` characters at a word boundary.
+function clip(text, max) {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1).replace(/\s+\S*$/, '')}…`;
+}
+
+// Compact: the README's first sentence and one line per file, with the summary cut to 60 characters.
+function guidanceIndex(injected, { compact = false } = {}) {
   const readme = readSkillFile('blueprints/README.md');
   const paths = [
     ...listBlueprints().filter((rel) => rel !== 'blueprints/README.md'),
@@ -324,12 +501,16 @@ function guidanceIndex(injected) {
     ...listReferences().filter((rel) => rel !== ALWAYS_REFERENCE),
   ].filter((rel) => !injected.has(rel));
   const lines = paths.map((rel) => {
-    const summary = firstSentence(readSkillFile(rel) || '');
+    const summary = compact ? clip(firstSentence(readSkillFile(rel) || ''), 60) : firstSentence(readSkillFile(rel) || '');
     return summary ? `- ${rel}: ${summary}` : `- ${rel}`;
   });
+  let intro;
+  if (readme === null) intro = '(missing: blueprints/README.md could not be read)';
+  else if (compact) intro = firstSentence(readme);
+  else intro = demoteHeadings(readme, 2);
   return [
     '## Guidance index',
-    readme === null ? '(missing: blueprints/README.md could not be read)' : demoteHeadings(readme, 2),
+    intro,
     '',
     '### Available guidance',
     '',
@@ -341,8 +522,22 @@ function guidanceIndex(injected) {
   ].join('\n');
 }
 
-function assemble(dir, detection, shared, template, knowledge, { full, trimVersions }) {
+// A knowledge note for the core: no Current versions table, version bullets filtered by their gates, and the
+// Default toolchain only for the primary ecosystem's note (the others are fallbacks for stacks not detected).
+function coreKnowledgeSection(rel, tools, isPrimary) {
+  const heading = `## Knowledge: ${rel}`;
+  const raw = readSkillFile(rel);
+  if (raw === null) return `${heading}\n(missing: ${rel} could not be read)`;
+  let body = filterVersionNotes(removeSection(raw, CURRENT_VERSIONS), tools, rel);
+  if (!isPrimary) body = removeSection(body, DEFAULT_TOOLCHAIN);
+  return `${heading}\n${body.replace(/\s+$/, '')}`;
+}
+
+function assemble(detection, shared, template, knowledge, { full, trimVersions = false, compact = false }) {
+  const tools = detectedTools(detection);
+  const primaryNote = ECOSYSTEM_NOTE[detection.primary];
   const knowledgeSection = (rel) => {
+    if (!full) return coreKnowledgeSection(rel, tools, rel === `knowledge/${primaryNote}`);
     const raw = section(`Knowledge: ${rel}`, rel);
     return trimVersions ? withoutCurrentVersions(raw) : raw;
   };
@@ -352,7 +547,7 @@ function assemble(dir, detection, shared, template, knowledge, { full, trimVersi
     const fence = fenceFor(json);
     detectionText = `## Detection\n${fence}json\n${json}\n${fence}`;
   } else {
-    const json = prettyJson(compactDetection(detection));
+    const json = prettyJson(compactDetection(detection, compact ? COMPACT_CAPS : LIST_CAPS));
     const fence = fenceFor(json);
     detectionText = [
       '## Detection',
@@ -365,17 +560,17 @@ function assemble(dir, detection, shared, template, knowledge, { full, trimVersi
     { name: 'Detection', text: detectionText },
     { name: `Template: templates/${template}.md`, text: section(`Template: templates/${template}.md`, `templates/${template}.md`) },
     ...knowledge.map((file) => ({ name: `Knowledge: knowledge/${file}`, text: knowledgeSection(`knowledge/${file}`) })),
-    { name: 'Repo graph', text: repoGraphSection(shared.graph) },
+    { name: 'Repo graph', text: repoGraphSection(shared.graph, { compact, dir: shared.dir }) },
     { name: 'Agent roster', text: shared.roster.roster },
-    { name: 'Router config', text: shared.roster.router },
   ];
   if (full) {
+    sections.push({ name: 'Router config', text: shared.roster.router });
     sections.push({ name: `Knowledge: ${PRACTICES}`, text: knowledgeSection(PRACTICES) });
     for (const rel of listBlueprints()) sections.push({ name: `Blueprint: ${rel}`, text: section(`Blueprint: ${rel}`, rel) });
     for (const rel of listReferences()) sections.push({ name: `Reference: ${rel}`, text: section(`Reference: ${rel}`, rel) });
   } else {
     sections.push({ name: `Reference: ${ALWAYS_REFERENCE}`, text: section(`Reference: ${ALWAYS_REFERENCE}`, ALWAYS_REFERENCE) });
-    sections.push({ name: 'Guidance index', text: guidanceIndex(new Set([ALWAYS_REFERENCE])) });
+    sections.push({ name: 'Guidance index', text: guidanceIndex(new Set([ALWAYS_REFERENCE]), { compact }) });
   }
 
   const header = (size) => [
@@ -392,20 +587,26 @@ function assemble(dir, detection, shared, template, knowledge, { full, trimVersi
   return `${header(lineCount)}\n${body}`;
 }
 
-// Default: the core (detection, template, stack notes, graph, roster, router, one reference, and an
-// index of everything else). `full: true` injects all guidance, as older versions did.
+// Default: the core (detection, template, the stack notes filtered to the detected versions, graph, roster,
+// one reference, and an index of everything else). `full: true` injects all guidance, as older versions did.
+// opts.budget overrides CORE_MAX_BYTES for the core (tests use a tiny budget to exercise the compact level).
 export function buildContext(dirArg = process.cwd(), opts = {}) {
   const full = Boolean(opts.full);
+  const budget = opts.budget ?? CORE_MAX_BYTES;
   const dir = path.resolve(dirArg);
   const detection = detect(dir);
   const template = chooseTemplate(detection.primary, detection.layout);
   const knowledge = chooseKnowledge(detection, dir);
   const graph = computeGraph(dir);
-  const shared = { graph, roster: rosterSections(dir, detection, graph.graph) };
-  const cap = full ? MAX_FULL_LINES : MAX_CORE_LINES;
-  const first = assemble(dir, detection, shared, template, knowledge, { full, trimVersions: false });
-  if (first.split('\n').length - 1 <= cap) return first;
-  return assemble(dir, detection, shared, template, knowledge, { full, trimVersions: true });
+  const shared = { graph, dir, roster: rosterSections(dir, detection, graph.graph) };
+  if (full) {
+    const first = assemble(detection, shared, template, knowledge, { full: true });
+    if (first.split('\n').length - 1 <= MAX_FULL_LINES) return first;
+    return assemble(detection, shared, template, knowledge, { full: true, trimVersions: true });
+  }
+  const core = assemble(detection, shared, template, knowledge, { full: false });
+  if (Buffer.byteLength(core) <= budget) return core;
+  return assemble(detection, shared, template, knowledge, { full: false, compact: true });
 }
 
 // ---------------------------------------------------------------------------
