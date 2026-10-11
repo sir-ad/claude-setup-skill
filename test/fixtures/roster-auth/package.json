@@ -1,0 +1,2 @@
+{"name":"saas","version":"0.1.0","scripts":{"test":"vitest run"},
+ "dependencies":{"next":"^15.0.0","react":"^19.0.0","next-auth":"^4.24.0","stripe":"^16.0.0","jsonwebtoken":"^9.0.0"},"devDependencies":{"vitest":"^2.0.0"}}

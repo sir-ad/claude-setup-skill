@@ -5,7 +5,7 @@ A read-only reviewer with persistent project memory. `<lang>` is the primary lan
 ## When to write
 - Default when `primary` is a known language. Skip for `unknown` or `generic`.
 - Skip with `--skip-pipeline` or `--minimal`.
-- A reviewer from v0.2 may already exist. Keep its checklist and add `memory: project` only after a per-file yes.
+- A reviewer from v0.2 may already exist. Keep its checklist. The plan lists the frontmatter changes (`memory: project`, `model: opus`) as a MERGE, and the Proceed gate covers them.
 
 ## Inputs
 - Detector: `primary`, `frameworks[]` with versions, `hardRuleCandidates[]`, `commands.lint[]`.
@@ -15,14 +15,14 @@ A read-only reviewer with persistent project memory. `<lang>` is the primary lan
 - Grep results. Run them before you write any line (see Rules).
 
 ## Rules
-- Frontmatter: `name: <lang>-reviewer`, a description that names the checks, `tools: Read, Grep, Glob`, `memory: project`. Leave `model` out so it inherits the session model.
+- Frontmatter: `name: <lang>-reviewer`, a description that names the checks, `tools: Read, Grep, Glob`, `memory: project`, `model: opus`. The reviewer is deep tier, so `model` is `opus`, the same as `security-reviewer` (see `blueprints/agents/role.md`).
 - Never add `Agent`. `memory: project` turns on Read, Write and Edit for the memory directory, so the body must say: write only inside your memory directory, never edit source.
 - Memory files land in `.claude/agent-memory/<name>/`. Tell the user to commit that folder (final report, not the agent file). It does nothing when auto memory is off.
 - Checklist: 4 to 8 lines. Each line cites a repo fact in parentheses: a config file, a documented rule, a hard rule with `file:line`, or a detected version.
 - Grep before banning. For every line that bans or requires a pattern, grep the repo. If the pattern is used on purpose, drop the line or scope it with the exception and the reason. Never flag what the repo does deliberately.
 - Never restate what lint or format config enforces. Cover what the config cannot catch.
 - No generic lines ("write clean code", "check for bugs").
-- The caller names the changed files or pastes the diff. The agent has no Bash, so it cannot run `git diff`. Say so in the body.
+- Tool-neutral body: the body is mirrored to other tools. Say "do not run shell commands", not what tool the agent lacks. The caller names the changed files or pastes the diff; the agent reviews those and does not run `git diff` itself.
 - Size cap: 40 lines including frontmatter.
 
 ## Skeleton
@@ -32,8 +32,9 @@ name: <lang>-reviewer
 description: Reviews <language> changes for <check 1>, <check 2> and <check 3>. Use proactively after code changes.
 tools: Read, Grep, Glob
 memory: project
+model: opus
 ---
-You review code changes in this repository. You do not edit source. The caller names the changed files or pastes the diff; review those only.
+You review code changes in this repository. You do not edit source. The caller names the changed files or pastes the diff; review those only. Do not run shell commands.
 
 ## Checks
 1. <what to flag> (<repo fact: config file, rule or version>)

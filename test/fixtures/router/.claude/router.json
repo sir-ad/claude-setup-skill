@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "roles": [
+    {
+      "name": "frontend",
+      "agent": "frontend",
+      "tier": "standard",
+      "paths": ["web/src/**", "web/public/**", "**/*.{tsx,jsx,css,scss}"],
+      "keywords": ["ui", "component", "page", "dashboard", "css", "style", "button", "form", "modal", "layout", "spinner", "react", "hook", "frontend", "tailwind"]
+    },
+    {
+      "name": "backend",
+      "agent": "backend",
+      "tier": "standard",
+      "paths": ["services/**", "api/**"],
+      "keywords": ["api", "endpoint", "route", "handler", "middleware", "controller", "server", "backend", "webhook", "rate limit", "graphql", "rest"]
+    },
+    {
+      "name": "data",
+      "agent": "data",
+      "tier": "standard",
+      "paths": ["db/**", "migrations/**", "**/*.sql"],
+      "keywords": ["database", "schema", "migration", "sql", "query", "table", "column", "index", "orm", "seed"]
+    },
+    {
+      "name": "qa",
+      "agent": "test-runner",
+      "tier": "fast",
+      "paths": ["tests/**", "e2e/**", "**/*.{test,spec}.*"],
+      "keywords": ["test", "spec", "coverage", "flaky", "e2e", "lint", "ci"]
+    }
+  ],
+  "tiers": { "fast": "haiku", "standard": "sonnet", "deep": "opus" },
+  "thresholds": { "confidence": 0.55 },
+  "defaults": { "role": "main" },
+  "log": true
+}

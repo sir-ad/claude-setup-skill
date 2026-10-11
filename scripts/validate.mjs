@@ -208,6 +208,27 @@ function checkMarkdown(file) {
   }
 }
 
+// Scripts the skill's own docs point at (scripts/roster.mjs, scripts/router/route.mjs, ...) must exist.
+// Only .mjs paths are checked: other scripts/ paths in the docs describe the user's project.
+function checkScriptReferences() {
+  const files = ['SKILL.md', ...MARKDOWN_DIRS.flatMap((dir) => listMarkdown(dir))].filter(exists);
+  for (const file of files) {
+    const refs = new Set([...read(file).matchAll(/\bscripts\/[\w./-]*\w\.mjs\b/g)].map((m) => m[0]));
+    for (const ref of refs) {
+      if (!exists(ref)) fail(`${file} mentions ${ref}, which does not exist`);
+    }
+  }
+}
+
+// The router is copied into projects from the skill folder, so it has to ship with scripts/.
+function checkRouterShips(shipped) {
+  if (!exists('scripts/router')) return;
+  for (const file of ['scripts/router/route.mjs']) {
+    if (!exists(file)) fail(`${file} is missing; the router hook is copied from it`);
+  }
+  if (shipped && !ships(shipped, 'scripts')) fail('scripts/router/route.mjs does not ship: "scripts" is not in package.json "files" and bin/install.js ITEMS');
+}
+
 function checkRuntimeDirs(shipped) {
   const required = ['SKILL.md', 'templates'];
   for (const dir of OPTIONAL_RUNTIME_DIRS) {
@@ -230,6 +251,8 @@ for (const dir of MARKDOWN_DIRS) {
   for (const file of listMarkdown(dir)) checkMarkdown(file);
 }
 checkRuntimeDirs(shipped);
+checkScriptReferences();
+checkRouterShips(shipped);
 
 for (const w of warnings) console.log(`WARN  ${w}`);
 for (const f of failures) console.log(`FAIL  ${f}`);

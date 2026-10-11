@@ -24,6 +24,7 @@ acme-saas/
 ├── CLAUDE.md                          # @AGENTS.md + token habits for Claude Code
 ├── .worktreeinclude                   # .env, .env.local, CLAUDE.local.md
 ├── docs/
+│   ├── agents.md                      # roster + routing tables (script output) and delegation contract
 │   ├── architecture.md                # components and data flow, from the code
 │   ├── project-structure.md           # module graph (script output) + short notes
 │   └── config.md                      # env var names from .env.example, never values
@@ -32,7 +33,7 @@ acme-saas/
 │   ├── api-hono.mdc
 │   └── db-drizzle.mdc
 └── .claude/
-    ├── settings.json                  # pnpm/turbo/read-only git allows; force-push and .env denies
+    ├── settings.json                  # pnpm/turbo/read-only git allows; force-push, hard reset, `pnpm publish`, `changeset publish` and .env denies. `pnpm run release` stays allowed: it only runs `changeset version`
     ├── rules/
     │   ├── code-style.md              # only what ESLint and Prettier do not enforce
     │   ├── testing.md                 # Vitest, single-test command, no live DB in unit tests
@@ -43,19 +44,25 @@ acme-saas/
     ├── agents/
     │   ├── explorer.md                # read-only search, returns path:line
     │   ├── test-runner.md             # runs test/lint/typecheck, returns only failures
-    │   └── ts-reviewer.md             # TS strict, RSC, PII checks; memory: project
+    │   ├── ts-reviewer.md             # TS strict, RSC, PII checks; memory: project; model: opus
+    │   ├── frontend.md                # edits apps/web/**, sonnet
+    │   ├── backend.md                 # edits apps/api/**, sonnet
+    │   └── data.md                    # edits packages/db/**, sonnet
+    ├── hooks/route.mjs                # router, written by emit.mjs as a copy of the skill's route.mjs
+    ├── router.json                    # routes and tiers from the roster
     └── skills/
         ├── plan-task/SKILL.md         # /plan-task: explore, write docs/plans/..., stop
+        ├── orchestrate/SKILL.md       # /orchestrate: route, dispatch role agents, test, review
         ├── handoff/SKILL.md           # /handoff: write .claude/handoff.md
         ├── release/SKILL.md           # changeset version, build, test, tag
         └── preview-deploy/SKILL.md    # vercel deploy + smoke check
 ```
 
-`docs/decisions/` was not written: the repo already has `docs/adr/`. `.gitignore` got `CLAUDE.local.md`, `.claude/settings.local.json`, `.claude/worktrees/` and `.claude/handoff.md` appended. No formatter hook and no handoff hook: the user answered no in the plan step. No `.mcp.json`: embeddings and code-search servers are opt-in.
+`docs/decisions/` was not written: the repo already has `docs/adr/`. `.gitignore` got `CLAUDE.local.md`, `.claude/settings.local.json`, `.claude/worktrees/` and `.claude/handoff.md` and `.claude/route-log.jsonl` appended. No formatter hook and no handoff hook: the user answered no in the plan step. No `.mcp.json`: embeddings and code-search servers are opt-in.
 
 ## docs/project-structure.md (excerpt)
 
-The block between the markers is script output from `scripts/graph.mjs`, pasted as is. The numbers are import counts. The notes below it are written by the model from files it opened.
+The block between the markers is script output from `scripts/graph.mjs`, written by `emit.mjs` and never typed by hand. The numbers are import counts. The notes below it are written by the model from files it opened.
 
 ````markdown
 # Project structure

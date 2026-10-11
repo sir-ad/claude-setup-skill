@@ -5,7 +5,7 @@ Path-scoped test conventions. It loads when Claude reads or edits a test file.
 ## When to write
 - Only when a test runner is detected and the repo has test files with conventions worth stating (fixtures, helpers, naming, mocking policy).
 - Skip when tests are few and plain, with `--minimal`, or when no runner was found.
-- Do not write it if `.claude/rules/testing.md` exists. Offer a merge instead.
+- Do not write it if `.claude/rules/testing.md` exists. List a MERGE in the plan instead.
 
 ## Inputs
 - Detector: `commands.test[]`, `frameworks[]` in the `test` group (vitest, jest, pytest, playwright), `ci`.

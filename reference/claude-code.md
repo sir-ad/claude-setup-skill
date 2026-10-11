@@ -24,7 +24,7 @@ Use plan mode for changes under `src/billing/`.
 
 Sources: https://code.claude.com/docs/en/settings , https://code.claude.com/docs/en/permissions
 
-Strict JSON: no comments, no trailing commas. If a permission mode refuses writes under `.claude/`, print the file content for the user instead of working around it. Precedence, highest first: managed, `--settings`, `settings.local.json`, `settings.json`, `~/.claude/settings.json`. Arrays merge across files. A deny in any scope beats an allow in any scope.
+Strict JSON: no comments, no trailing commas. If a permission mode refuses writes under `.claude/`, write the file under `.claude-setup/drafts/` (permission lists in `drafts/permissions.json`), let `emit.mjs --write drafts --stage` stage it under `.claude-setup/staged/`, and give the user `node .claude-setup/apply.mjs`. Never work around a refusal. Precedence, highest first: managed, `--settings`, `settings.local.json`, `settings.json`, `~/.claude/settings.json`. Arrays merge across files. A deny in any scope beats an allow in any scope.
 
 ```json
 {
@@ -46,6 +46,7 @@ Rule syntax:
 - A `Read` deny also blocks Edit and Write on that path. Path rules for `Write` and `Glob` are never consulted. Use `Read(...)` and `Edit(...)`.
 - `.env.*` also matches `.env.example`. Deny can't be carved back by an allow. If the agent should read the example file, deny explicit names (`.env`, `.env.local`, `.env.*.local`).
 - Bash deny rules are not a security boundary (`sh -c` bypasses them). `.claudeignore` has no effect.
+- Publish denies name the real publish commands: `Bash(npm publish *)`, `Bash(pnpm publish *)`, `Bash(yarn npm publish *)`, `Bash(changeset publish *)`, `Bash(cargo publish *)`, `Bash(twine upload *)`, `Bash(gem push *)`. A script is denied only when its body publishes. A script that only versions, such as `changeset version` behind `pnpm run release`, stays allowed.
 
 Never put in committed settings: `defaultMode` of `auto` or `bypassPermissions` (Claude Code ignores them from project settings anyway), tokens, keys, `env` values, personal paths, or a blanket `Bash(*)`.
 
@@ -83,6 +84,7 @@ name: ts-reviewer
 description: Reviews TypeScript changes for strictness, server/client boundaries and PII in logs. Use proactively after code changes.
 tools: Read, Grep, Glob
 memory: project
+model: opus
 ---
 You review diffs. Report findings by file and line. Do not edit.
 ```
@@ -114,7 +116,7 @@ Memory scopes (`memory:`):
 - `local`: `.claude/agent-memory-local/<name>/`. Do not commit.
 
 When on, Read, Write and Edit are enabled for the agent and the first 200 lines or 25 KB of its `MEMORY.md` are injected. It does nothing if auto memory is disabled.
-Leave `model` out of a reviewer so it inherits the session model. Defining your own agent named `Explore` overrides the built-in one.
+Set `model: opus` on a reviewer (the deep tier), so review does not depend on the session model. Defining your own agent named `Explore` overrides the built-in one.
 
 ## Skills: .claude/skills/<name>/SKILL.md
 

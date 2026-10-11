@@ -6,24 +6,38 @@ Sources: [Building effective agents](https://www.anthropic.com/engineering/build
 
 ## Default shape
 
-One main agent does the work. It has three helpers and two skills.
+The main agent is the orchestrator. It routes the goal, plans when needed, hands scoped work to role agents, then checks and reviews. Three helpers are always present. Role agents are added only where the repo shows evidence for them, at most 8. `scripts/roster.mjs` decides which, and records the evidence in `docs/agents.md`.
 
 | File | Job | Tools | Model |
 |---|---|---|---|
 | `.claude/agents/explorer.md` | Read-only search. Reads `docs/project-structure.md` first. Returns `file:line` findings. | Read, Grep, Glob | haiku |
 | `.claude/agents/test-runner.md` | Runs the detected test and lint commands. Returns only failures. | Bash (scoped), Read, Grep | haiku |
-| `.claude/agents/<lang>-reviewer.md` | Reviews a diff against the repo's own rules. Keeps `memory: project`. | Read, Grep, Glob | inherit |
+| `.claude/agents/<lang>-reviewer.md` | Reviews a diff against the repo's own rules. Keeps `memory: project`. | Read, Grep, Glob | opus (deep tier) |
+| `.claude/agents/<role>.md` (0 to 8) | Edits one scope: frontend, backend, data, infra, mobile, docs, test-writer, security-reviewer or release. Edits only its `writes` globs. | Per role | Per tier |
 | `.claude/skills/plan-task/SKILL.md` | `/plan-task <task>`: explore, write a plan file, stop for approval. | | |
+| `.claude/skills/orchestrate/SKILL.md` | `/orchestrate <goal>`: route, plan, dispatch, test, review, report. | | |
 | `.claude/skills/handoff/SKILL.md` | `/handoff`: write `.claude/handoff.md`. | | |
 
-None of the generated subagents has the `Agent` tool, so they cannot spawn more subagents. Both skills set `disable-model-invocation: true` because they write files.
+Models follow the tier in `model-tiers.md`. The optional router hook (`routing.md`) adds a one-line hint to each prompt. `docs/agents.md` holds the roster and routing tables for people and for other tools.
+
+None of the generated subagents has the `Agent` tool, so they cannot spawn more subagents. The skills set `disable-model-invocation: true` because they write files or start a sequence.
+
+### Roles are scoped workers, not a swarm
+
+A role agent is a worker with a fixed scope. It does not pick its own work and does not talk to other agents. The orchestrator gives it a goal, the paths, the globs it may edit and an output format. It returns changed files, commands run and open risks.
+
+- Roles exist because a scope has its own checks (a framework, a migration tool, a deploy file), and because a smaller context and a cheaper model fit the work.
+- Parallel dispatch is for disjoint scopes only: no shared paths and no shared writable files. Anthropic notes that most coding tasks have fewer parallelizable parts than research. ([multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)) Two agents editing the same file are slower than one.
+- Work that needs tight back-and-forth, or that touches one file, stays in the main conversation.
+- No role is added without evidence in the repo. A role missing from the roster is a decision, not an omission.
 
 ### Why not more
 
-- Anthropic says to start with the simplest solution and add complexity only when it measurably helps. ([Building effective agents](https://www.anthropic.com/engineering/building-effective-agents))
-- A multi-agent system used about 15x the tokens of a chat, and agents about 4x. Anthropic notes that most coding tasks have fewer parallelizable parts than research, so multi-agent suits them less. ([multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system))
-- ADK gives the same reasons to split an agent: long instructions degrade, context is limited, and each part should do one job. ([ADK agents](https://github.com/google/adk-docs/blob/main/docs/agents/index.md)) The three helpers earn their place by isolating noisy output (searches, test logs) and by giving review a fresh context.
-- Add an agent only after a repeated failure that a narrower agent would fix. Do not add one per language, layer or ticket.
+- Anthropic says to start with the simplest solution and add complexity only when it measurably helps. ([Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)) The roster is the smallest set that matches how the repo is split.
+- A multi-agent system used about 15x the tokens of a chat, and agents about 4x. ([multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)) The cap of 8 roles, cheaper tiers for workers and serial dispatch by default keep that cost down.
+- ADK gives the same reasons to split an agent: long instructions degrade, context is limited, and each part should do one job. ([ADK agents](https://github.com/google/adk-docs/blob/main/docs/agents/index.md)) The helpers earn their place by isolating noisy output (searches, test logs) and by giving review a fresh context. Role agents earn theirs by carrying one scope's rules.
+- Do not add an agent per ticket, per workspace package or per language. Add one after a repeated failure that a narrower agent would fix.
+- Agent teams stay off by default. They are experimental, and each teammate is a full session. ([agent teams](https://code.claude.com/docs/en/agent-teams))
 
 ## Pattern mapping
 
@@ -32,9 +46,9 @@ Left: the named pattern. Right: what a generated project uses.
 | Pattern | Source | Claude Code mechanism |
 |---|---|---|
 | Prompt chaining | [Anthropic](https://www.anthropic.com/engineering/building-effective-agents) | Numbered steps in a skill. `/plan-task` runs explore, write plan, stop. The gate between steps is a file or a human approval. |
-| Routing | Anthropic | Subagent `description` fields. Claude picks a subagent from the request and the descriptions, so write them as routing contracts: specific, and different from their peers. "use proactively" encourages delegation. ([sub-agents](https://code.claude.com/docs/en/sub-agents#understand-automatic-delegation)) |
-| Parallelization | Anthropic | Several read-only subagents in one turn, each with its own question, sharing no state. The main agent merges the answers. Sectioning only. No voting by default. |
-| Orchestrator-workers | Anthropic | The main agent, with explorer and test-runner as workers. Anthropic lists it as the fit for multi-file coding changes. |
+| Routing | Anthropic | The router hint, then subagent `description` fields. Claude picks a subagent from the request and the descriptions, so write them as routing contracts: specific, and different from their peers. "use proactively" encourages delegation. ([sub-agents](https://code.claude.com/docs/en/sub-agents#understand-automatic-delegation)) |
+| Parallelization | Anthropic | Several subagents in one turn, each with its own question or scope, sharing no state. Read-only agents, or role agents with disjoint `writes`. The main agent merges the answers. Sectioning only. No voting by default. |
+| Orchestrator-workers | Anthropic | The main agent (`/orchestrate`), with role agents, explorer and test-runner as workers. Anthropic lists it as the fit for multi-file coding changes. |
 | Evaluator-optimizer | Anthropic | Test, fix, test again, capped at 3 rounds, then stop and report. The reviewer is the evaluator for a finished diff. |
 | `LlmAgent` with transfer | [ADK](https://github.com/google/adk-docs/blob/main/docs/agents/custom-agents.md) | Same as routing. ADK says transfer needs clear instructions and distinct `description`s. |
 | `SequentialAgent` | [ADK](https://github.com/google/adk-docs/blob/main/docs/agents/workflow-agents/sequential-agents.md) | Skill steps, in order. |

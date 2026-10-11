@@ -5,7 +5,7 @@ Path-scoped conventions for source files. It loads only when Claude reads or edi
 ## When to write
 - Only when you found at least 3 conventions in the repo that differ from the language default and that no lint or format config enforces.
 - Skip for tiny repos, for repos with no source files, and with `--minimal`. Zero rules is a valid result.
-- Do not write it if `.claude/rules/code-style.md` exists. Offer a merge instead.
+- Do not write it if `.claude/rules/code-style.md` exists. List a MERGE in the plan instead.
 
 ## Inputs
 - Lint and format config: ESLint or Biome config, Prettier, `ruff.toml` or `[tool.ruff]`, `.editorconfig`, `rustfmt.toml`, `.golangci.yml`, `.rubocop.yml`. Read them to learn what is already enforced.

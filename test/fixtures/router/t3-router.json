@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "roles": [
+    {
+      "name": "frontend",
+      "agent": "frontend",
+      "tier": "standard",
+      "paths": [
+        "cli/template/base/**",
+        "cli/template/extras/config/**",
+        "cli/template/extras/src/**",
+        "www/**"
+      ],
+      "keywords": [
+        "component",
+        "page",
+        "ui",
+        "css",
+        "style",
+        "layout",
+        "button",
+        "form",
+        "render",
+        "hook",
+        "tailwind",
+        "modal",
+        "navbar",
+        "responsive",
+        "theme",
+        "view",
+        "next",
+        "react",
+        "react-dom",
+        "astro"
+      ]
+    },
+    {
+      "name": "backend",
+      "agent": "backend",
+      "tier": "standard",
+      "paths": [
+        "cli/template/extras/src/**"
+      ],
+      "keywords": [
+        "endpoint",
+        "api",
+        "route",
+        "handler",
+        "controller",
+        "middleware",
+        "server",
+        "request",
+        "response",
+        "auth",
+        "validation",
+        "rest",
+        "graphql",
+        "webhook",
+        "trpc"
+      ]
+    },
+    {
+      "name": "data",
+      "agent": "data",
+      "tier": "standard",
+      "paths": [
+        "cli/template/extras/config/**",
+        "cli/template/extras/src/**"
+      ],
+      "keywords": [
+        "migration",
+        "schema",
+        "model",
+        "query",
+        "table",
+        "index",
+        "orm",
+        "database",
+        "sql",
+        "seed",
+        "column",
+        "relation",
+        "drizzle-kit",
+        "drizzle-orm"
+      ]
+    },
+    {
+      "name": "infra",
+      "agent": "infra",
+      "tier": "standard",
+      "paths": [
+        ".github/workflows/**"
+      ],
+      "keywords": [
+        "docker",
+        "dockerfile",
+        "deploy",
+        "ci",
+        "pipeline",
+        "terraform",
+        "k8s",
+        "kubernetes",
+        "helm",
+        "env",
+        "workflow",
+        "container",
+        "compose"
+      ]
+    },
+    {
+      "name": "test-runner",
+      "agent": "test-runner",
+      "tier": "fast",
+      "paths": [
+        "**"
+      ],
+      "keywords": [
+        "flaky",
+        "failing",
+        "lint",
+        "typecheck",
+        "regression",
+        "ci",
+        "run"
+      ]
+    },
+    {
+      "name": "release",
+      "agent": "release",
+      "tier": "fast",
+      "paths": [
+        "**/package.json",
+        ".changeset/**"
+      ],
+      "keywords": [
+        "release",
+        "version",
+        "changelog",
+        "publish",
+        "bump",
+        "tag",
+        "semver"
+      ]
+    }
+  ],
+  "tiers": {
+    "fast": "haiku",
+    "standard": "sonnet",
+    "deep": "opus"
+  },
+  "thresholds": {
+    "confidence": 0.55
+  },
+  "defaults": {
+    "role": "main"
+  },
+  "log": true
+}

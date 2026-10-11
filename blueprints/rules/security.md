@@ -5,7 +5,7 @@ An always-on security rule. It has no `paths`, so it loads at launch with CLAUDE
 ## When to write
 - Default for any repo that handles user input, a database, authentication, secrets or network calls (a service, web app, CLI that calls APIs).
 - Skip for pure libraries with no I/O, for docs-only repos, and with `--minimal`.
-- Do not write it if `.claude/rules/security.md` exists. Offer a merge instead.
+- Do not write it if `.claude/rules/security.md` exists. List a MERGE in the plan instead.
 
 ## Inputs
 - Detector: `frameworks[]` (ORM, web framework, auth library, schema validator), `env.files`, `hardRuleCandidates[]` that mention security, `infra`.

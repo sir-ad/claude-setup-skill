@@ -4,7 +4,7 @@ The `/handoff` skill. It writes `.claude/handoff.md` so the next session, or ano
 
 ## When to write
 - Default with the pipeline. Skip with `--skip-skills`, `--skip-pipeline` or `--minimal`.
-- Do not write it if `.claude/skills/handoff/` exists. Offer a merge instead.
+- Do not write it if `.claude/skills/handoff/` exists. List a MERGE in the plan instead.
 - The handoff file is working state, not documentation. In the plan, offer to append `.claude/handoff.md` to `.gitignore` (default yes). If the user wants to share handoffs across machines, skip the ignore entry.
 
 ## Inputs
