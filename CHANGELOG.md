@@ -21,7 +21,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - `test/consistency.test.mjs` checks that README, SKILL.md, the templates, the blueprints and the adapters reference agree.
 - `scripts/emit.mjs` writes the generated parts with fixed content: the router as one unit (`route.mjs` copy, `router.json`, the `UserPromptSubmit` hook and the `.gitignore` line, all or nothing), the roster fence in `docs/agents.md`, the graph fence in `docs/project-structure.md` and other-tool agent mirrors. `--dry-run` lists the paths for the plan.
 - Staging for refused writes. When Claude Code refuses a `.claude/` write, the file goes to `.claude-setup/staged/` with `.claude-setup/apply.mjs` and a README. The report names one command: `node .claude-setup/apply.mjs`.
-- `verify.mjs` checks the fences: no placeholders, and the text between the markers equals script output.
+- `verify.mjs` checks fence structure in every `.md` file: each begin and end marker appears once, in order, around text that is not empty or placeholder. A roster or graph fence that differs from script output is a warning; Pass the same `--intent` that emit.mjs got; `--no-fence-check` skips the comparison.
 - Consistency tests: SKILL.md names `emit.mjs`, has no `node -e` copy of `route.mjs`, and every blueprint path it names exists.
 - Deny-list rule in SKILL.md: deny the real publish commands (`npm publish`, `pnpm publish`, `yarn npm publish`, `changeset publish`, `cargo publish`, `twine upload`, `gem push`) and any script whose body publishes. A script that only versions, such as `changeset version` behind `pnpm run release`, is not denied.
 

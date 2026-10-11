@@ -6,7 +6,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { verifyFiles, scanForSecrets, parseArgs } from '../scripts/verify.mjs';
+import { verifyFiles, scanForSecrets, parseArgs, checkFences } from '../scripts/verify.mjs';
+import { fenceBody } from '../scripts/emit.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, '..', 'scripts', 'verify.mjs');
@@ -424,8 +425,8 @@ test('--expect works without files, and parseArgs reads both forms', () => {
   assert.equal(run(dir, []).status, 2, 'no files and no expect is a usage error');
   const onlyExpect = spawnSync(process.execPath, [SCRIPT, '--dir', dir, '--expect', 'AGENTS.md'], { encoding: 'utf8' });
   assert.equal(onlyExpect.status, 1);
-  assert.deepEqual(parseArgs(['--dir', 'p', '--expect', 'a.md, b/ ,', 'AGENTS.md']), { dir: 'p', files: ['AGENTS.md'], expect: ['a.md', 'b/'] });
-  assert.deepEqual(parseArgs(['--expect=x.md']), { dir: '.', files: [], expect: ['x.md'] });
+  assert.deepEqual(parseArgs(['--dir', 'p', '--expect', 'a.md, b/ ,', 'AGENTS.md']), { dir: 'p', files: ['AGENTS.md'], expect: ['a.md', 'b/'], fenceCheck: true, intent: '' });
+  assert.deepEqual(parseArgs(['--expect=x.md']), { dir: '.', files: [], expect: ['x.md'], fenceCheck: true, intent: '' });
 });
 
 test('AGENTS.md: slash words in prose are not treated as paths', () => {
@@ -434,4 +435,121 @@ test('AGENTS.md: slash words in prose are not treated as paths', () => {
   write(dir, 'AGENTS.md', 'Use `and/or` and `read/write` freely. Code lives in `src/` and `src/index.ts`.\n');
   const errors = levels(verifyFiles(dir, ['AGENTS.md']), 'error');
   assert.deepEqual(errors, []);
+});
+
+// ---------------------------------------------------------------------------
+// Fences
+// ---------------------------------------------------------------------------
+
+const fenceMd = (name, body) => `<!-- claude-setup:begin ${name} -->\n${body}<!-- claude-setup:end ${name} -->\n`;
+const structure = (text) => checkFences(text).map((f) => `${f.level} ${f.message}`);
+const problems = (findings) => findings.filter((f) => f.level === 'error' || f.level === 'warning');
+
+test('fence: each marker must appear exactly once', () => {
+  assert.deepEqual(structure('<!-- claude-setup:begin roster -->\nx\n'), ['error roster fence: each marker must appear exactly once']);
+  assert.deepEqual(structure('<!-- claude-setup:end graph -->\n'), ['error graph fence: each marker must appear exactly once']);
+  assert.deepEqual(structure(fenceMd('roster', 'x\n') + fenceMd('roster', 'y\n')), ['error roster fence: each marker must appear exactly once']);
+});
+
+test('fence: end marker before begin marker is an error', () => {
+  const text = '<!-- claude-setup:end graph -->\nx\n<!-- claude-setup:begin graph -->\n';
+  assert.deepEqual(structure(text), ['error graph fence: end marker comes before begin marker']);
+});
+
+test('fence: empty or whitespace-only text is an error', () => {
+  assert.deepEqual(structure(fenceMd('graph', '')), ['error graph fence: empty']);
+  assert.deepEqual(structure(fenceMd('graph', '\n  \n\t\n')), ['error graph fence: empty']);
+});
+
+test('fence: placeholder lines and template variables are errors; tags without a space are not', () => {
+  const bad = [
+    '<the injected Agent roster section, verbatim>',
+    '  <output of: node scripts/graph.mjs --markdown>  ',
+    'See ${CLAUDE_SKILL_DIR}/scripts/emit.mjs',
+  ];
+  for (const line of bad) {
+    assert.deepEqual(structure(fenceMd('roster', `### Roster\n${line}\n`)), ['error roster fence: holds placeholder text'], line);
+  }
+  for (const line of ['<br>', '<details>', '</details>', '<!-- note -->', 'a < b and c > d']) {
+    assert.deepEqual(structure(fenceMd('roster', `${line}\n`)), [], line);
+  }
+});
+
+test('fence: a valid fence has no fence error, and each fence is checked on its own', () => {
+  assert.deepEqual(checkFences(fenceMd('roster', '### Roster\n\n| a |\n')), []);
+  assert.deepEqual(checkFences('no markers here\n'), []);
+  assert.deepEqual(structure(fenceMd('roster', 'ok\n') + fenceMd('graph', '')), ['error graph fence: empty']);
+});
+
+test('fence checks run on .md files only, and the findings name the file', () => {
+  const dir = makeTmp();
+  write(dir, 'docs/agents.md', fenceMd('roster', '<the injected Agent roster section, verbatim>\n'));
+  write(dir, 'notes.txt', fenceMd('roster', ''));
+  const findings = verifyFiles(dir, ['docs/agents.md', 'notes.txt'], { fenceCheck: false });
+  assert.deepEqual(levels(findings, 'error').map((f) => [f.file, f.message]), [
+    ['docs/agents.md', 'roster fence: holds placeholder text'],
+  ]);
+  assert.equal(run(dir, ['docs/agents.md']).status, 1);
+  assert.equal(run(dir, ['notes.txt']).status, 0);
+});
+
+test('fence names are matched as written, so an object property name is not a fence', () => {
+  const dir = makeTmp();
+  write(dir, 'x.md', fenceMd('constructor', 'text\n'));
+  assert.deepEqual(problems(verifyFiles(dir, ['x.md'])), []);
+});
+
+// Two files, one importing the other, so the graph has a module edge.
+function graphProject() {
+  const dir = makeTmp();
+  write(dir, 'src/util.js', 'export function add(a, b) {\n  return a + b;\n}\n');
+  write(dir, 'src/app.js', "import { add } from './util.js';\n\nexport const total = add(1, 2);\n");
+  return dir;
+}
+
+test('fenceBody: roster and graph bodies, null for any other name', () => {
+  const dir = graphProject();
+  assert.equal(fenceBody(dir, 'docs'), null);
+  assert.equal(fenceBody(dir, 'unknown-fence'), null);
+  const roster = fenceBody(dir, 'roster');
+  assert.ok(roster.startsWith('### Roster\n'), 'roster body uses ### headings');
+  assert.doesNotMatch(roster, /^## /m);
+  assert.match(fenceBody(dir, 'graph'), /### Module graph/);
+});
+
+test('graph fence: a stale body warns, a fresh body does not, and --no-fence-check skips the comparison', () => {
+  const dir = graphProject();
+  const doc = 'docs/project-structure.md';
+  write(dir, doc, `# Project structure\n\n${fenceMd('graph', 'old text\n')}`);
+  const stale = verifyFiles(dir, [doc]);
+  assert.deepEqual(levels(stale, 'error'), []);
+  assert.deepEqual(levels(stale, 'warning').map((w) => w.message), [
+    'graph fence differs from current script output; refresh with emit.mjs --write structure-doc',
+  ]);
+  assert.equal(run(dir, [doc]).status, 0, 'a warning alone exits 0');
+  const quiet = spawnSync(process.execPath, [SCRIPT, '--dir', dir, '--no-fence-check', doc], { encoding: 'utf8' });
+  assert.equal(quiet.status, 0);
+  assert.doesNotMatch(quiet.stdout, /differs/);
+  assert.equal(levels(verifyFiles(dir, [doc], { fenceCheck: false }), 'warning').length, 0);
+
+  const fresh = fenceBody(dir, 'graph');
+  write(dir, doc, `# Project structure\n\n${fenceMd('graph', fresh)}`);
+  assert.deepEqual(problems(verifyFiles(dir, [doc])), []);
+  // Trailing spaces on each line are not a difference.
+  const padded = fresh.split('\n').map((l) => `${l}   `).join('\n');
+  write(dir, doc, `# Project structure\n\n${fenceMd('graph', padded)}`);
+  assert.deepEqual(problems(verifyFiles(dir, [doc])), []);
+});
+
+test('roster fence: verify recomputes with the same --intent that emit.mjs got', () => {
+  const dir = graphProject();
+  const doc = 'docs/agents.md';
+  const intent = 'a react native mobile app';
+  const withIntent = fenceBody(dir, 'roster', { intent });
+  assert.notEqual(withIntent, fenceBody(dir, 'roster'), 'the intent changes the roster');
+  write(dir, doc, `# Agents\n\n${fenceMd('roster', withIntent)}`);
+  assert.match(levels(verifyFiles(dir, [doc]), 'warning').map((w) => w.message).join('\n'), /roster fence differs/);
+  assert.deepEqual(problems(verifyFiles(dir, [doc], { intent })), []);
+  assert.deepEqual(parseArgs(['--intent', intent, doc]).intent, intent);
+  assert.deepEqual(parseArgs([`--intent=${intent}`, doc]).intent, intent);
 });

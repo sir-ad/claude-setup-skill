@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 // Phase 5 checks for the files /claude-setup wrote. Zero dependencies. Node 18+.
 //
-//   node scripts/verify.mjs [--dir <project>] [--expect <path,...>] <file>...
+//   node scripts/verify.mjs [--dir <project>] [--expect <path,...>] [--intent <text>] [--no-fence-check] <file>...
 //
 // Paths are relative to --dir (default: current directory). Per file: line count,
 // JSON validity, secret scan, size and import rules for AGENTS.md / CLAUDE.md, and
 // safety checks for .claude/settings.json. Files whose name starts with ".env" are
 // never opened. AGENTS.md and CLAUDE.md must not link to repo paths that do not exist
 // (markdown links and backticked paths). --expect lists paths the plan says should be
-// written; each one missing under --dir is an error. No message ever contains file
+// written; each one missing under --dir is an error. Markdown files get fence checks:
+// each claude-setup begin/end pair appears once, in order, with text and no placeholders.
+// roster and graph fences are also compared with what emit.mjs would write; a difference
+// is a warning. Pass the --intent given to emit.mjs, since it changes the roster.
+// --no-fence-check skips that comparison. No message ever contains file
 // content: secret findings print the line number and kind, and a JSON syntax error
 // prints only its line and column.
 //
@@ -17,6 +21,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { fenceBody } from './emit.mjs';
 
 const MAX_AGENTS_LINES = 150;
 const MAX_CLAUDE_LINES = 200;
@@ -294,9 +300,86 @@ function checkSettings(json, add, root) {
   if (!json || typeof json.$schema !== 'string') add('warning', '$schema is missing');
 }
 
-// Findings: { level: 'error' | 'warning' | 'info' | 'skipped', file, message }.
-export function verifyFiles(dir, files) {
+// ---------------------------------------------------------------------------
+// Fences. emit.mjs writes the text between `<!-- claude-setup:begin <name> -->` and the matching
+// end marker. These checks run on every .md file.
+// ---------------------------------------------------------------------------
+
+const FENCE_MARKER = /<!-- claude-setup:(begin|end) ([a-z0-9-]+) -->/g;
+// Angle-bracket lines with a space are blueprint placeholders, such as `<output of: node ...>`.
+// Tags with no space, such as `<br>`, pass.
+const FENCE_PLACEHOLDER = /^<[^>!/][^>]*>$/;
+const FENCE_TEMPLATE_VAR = '${CLAUDE_SKILL_DIR}';
+// Fences that fenceBody() can rebuild, and the emit.mjs item that refreshes each one.
+const FENCE_REFRESH = { roster: 'agents-doc', graph: 'structure-doc' };
+
+// The lines between the begin marker at index begin and the end marker at index end, without
+// the two marker lines. Empty when the markers share a line.
+function fenceText(text, begin, end) {
+  const start = text.indexOf('\n', begin);
+  const stop = text.lastIndexOf('\n', end - 1);
+  if (start === -1 || stop < start) return '';
+  return text.slice(start + 1, stop + 1);
+}
+
+// Structure findings for the fences in one file, and the text of each fence that passed every
+// check. Fence names come from any begin or end marker.
+function scanFences(text) {
+  const seen = new Map(); // name -> { begin: [index], end: [index] }
+  for (const m of text.matchAll(FENCE_MARKER)) {
+    if (!seen.has(m[2])) seen.set(m[2], { begin: [], end: [] });
+    seen.get(m[2])[m[1]].push(m.index);
+  }
   const findings = [];
+  const bodies = new Map();
+  for (const [name, { begin, end }] of seen) {
+    const fail = (why) => findings.push({ level: 'error', message: `${name} fence: ${why}` });
+    if (begin.length !== 1 || end.length !== 1) {
+      fail('each marker must appear exactly once');
+    } else if (end[0] < begin[0]) {
+      fail('end marker comes before begin marker');
+    } else {
+      const body = fenceText(text, begin[0], end[0]);
+      const lines = body.split(/\r?\n/).map((l) => l.trim());
+      if (body.trim() === '') fail('empty');
+      else if (lines.some((l) => (FENCE_PLACEHOLDER.test(l) && l.includes(' ')) || l.includes(FENCE_TEMPLATE_VAR))) {
+        fail('holds placeholder text');
+      } else bodies.set(name, body);
+    }
+  }
+  return { findings, bodies };
+}
+
+// Structure findings only: [{ level, message }].
+export function checkFences(text) {
+  return scanFences(text).findings;
+}
+
+// Equal once trailing whitespace is removed from each line and from the end of the text.
+function sameFenceText(a, b) {
+  const norm = (s) => s.split(/\r?\n/).map((l) => l.trimEnd()).join('\n').trimEnd();
+  return norm(a) === norm(b);
+}
+
+// fenceBody() for one fence, computed at most once per verifyFiles call: { body } or { error }.
+function freshFence(root, name, cache, intent) {
+  if (!cache.has(name)) {
+    try {
+      cache.set(name, { body: fenceBody(root, name, { intent }) });
+    } catch (err) {
+      // The code or name only. A parser message can quote file content.
+      cache.set(name, { error: String((err && (err.code || err.name)) || 'error') });
+    }
+  }
+  return cache.get(name);
+}
+
+// Findings: { level: 'error' | 'warning' | 'info' | 'skipped', file, message }.
+// fenceCheck: false skips comparing roster and graph fences with script output. intent: as given to emit.mjs.
+export function verifyFiles(dir, files, { fenceCheck = true, intent = '' } = {}) {
+  const findings = [];
+  const root = path.resolve(dir);
+  const freshCache = new Map();
   for (const file of files) {
     const add = (level, message) => findings.push({ level, file, message });
     const name = path.basename(file);
@@ -356,6 +439,21 @@ export function verifyFiles(dir, files) {
       }
     }
 
+    if (name.endsWith('.md')) {
+      const fences = scanFences(text);
+      for (const f of fences.findings) add(f.level, f.message);
+      if (fenceCheck) {
+        for (const [fence, body] of fences.bodies) {
+          if (!Object.hasOwn(FENCE_REFRESH, fence)) continue;
+          const fresh = freshFence(root, fence, freshCache, intent);
+          if (fresh.error) add('warning', `${fence} fence: could not recompute (${fresh.error})`);
+          else if (!sameFenceText(body, fresh.body)) {
+            add('warning', `${fence} fence differs from current script output; refresh with emit.mjs --write ${FENCE_REFRESH[fence]}`);
+          }
+        }
+      }
+    }
+
     const normalized = file.split(path.sep).join('/');
     if (normalized === '.claude/settings.json' || normalized.endsWith('/.claude/settings.json')) {
       if (json) checkSettings(json, add, path.dirname(path.dirname(abs)));
@@ -376,6 +474,8 @@ const splitList = (value) => value.split(',').map((s) => s.trim()).filter(Boolea
 export function parseArgs(argv) {
   let dir = '.';
   let expect = [];
+  let fenceCheck = true;
+  let intent = '';
   const files = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -383,9 +483,12 @@ export function parseArgs(argv) {
     else if (arg.startsWith('--dir=')) dir = arg.slice('--dir='.length);
     else if (arg === '--expect') expect = splitList(argv[++i] ?? '');
     else if (arg.startsWith('--expect=')) expect = splitList(arg.slice('--expect='.length));
+    else if (arg === '--no-fence-check') fenceCheck = false;
+    else if (arg === '--intent') intent = argv[++i] ?? '';
+    else if (arg.startsWith('--intent=')) intent = arg.slice('--intent='.length);
     else files.push(arg);
   }
-  return { dir, files, expect };
+  return { dir, files, expect, fenceCheck, intent };
 }
 
 export function formatReport(findings, fileCount) {
@@ -406,13 +509,13 @@ function isEntryPoint() {
 }
 
 function main() {
-  const { dir, files, expect } = parseArgs(process.argv.slice(2));
+  const { dir, files, expect, fenceCheck, intent } = parseArgs(process.argv.slice(2));
   if (files.length === 0 && expect.length === 0) {
-    process.stderr.write('usage: node verify.mjs [--dir <project>] [--expect <path,...>] <file>...\n');
+    process.stderr.write('usage: node verify.mjs [--dir <project>] [--expect <path,...>] [--intent <text>] [--no-fence-check] <file>...\n');
     process.exitCode = 2;
     return;
   }
-  const findings = [...verifyFiles(dir, files), ...checkExpected(dir, expect)];
+  const findings = [...verifyFiles(dir, files, { fenceCheck, intent }), ...checkExpected(dir, expect)];
   const { text, errors } = formatReport(findings, files.length);
   process.stdout.write(text);
   process.exitCode = errors > 0 ? 1 : 0;

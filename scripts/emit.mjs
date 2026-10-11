@@ -302,6 +302,24 @@ const STAGE_README = [
 // Items
 // ---------------------------------------------------------------------------
 
+// Fence bodies. runItems and fenceBody both build them here, so verify.mjs compares against the
+// text that emit.mjs writes.
+const rosterBody = (roster) => renderRosterMarkdown(roster).replace(/^## /gm, '### ');
+const graphBody = (graph) => renderMarkdown(graph, { maxNodes: 25 });
+
+// The text emit.mjs puts between the markers of fence `name`, or null for any other name. Writes
+// nothing. Builds only what the fence needs: roster needs detection, the graph and the roster.
+export function fenceBody(dir, name, { intent = '' } = {}) {
+  const root = path.resolve(dir);
+  if (name === 'roster') {
+    const detection = detect(root);
+    const graph = buildGraph(root);
+    return rosterBody(deriveRoster(root, { intent, detection, graph }));
+  }
+  if (name === 'graph') return graphBody(buildGraph(root));
+  return null;
+}
+
 function runItems(o, res) {
   const want = (i) => o.items.includes(i);
   let graph = null;
@@ -313,12 +331,11 @@ function runItems(o, res) {
   }
   if (want('router')) emitEntries(res, o, planRouter(o.dir, roster));
   if (want('agents-doc')) {
-    const body = renderRosterMarkdown(roster).replace(/^## /gm, '### ');
-    emitEntries(res, o, planFence(o.dir, 'docs/agents.md', 'roster', body,
+    emitEntries(res, o, planFence(o.dir, 'docs/agents.md', 'roster', rosterBody(roster),
       '# Agents\n\nRoles, scopes and model tiers for agents working in this repo.\n\n'));
   }
   if (want('structure-doc')) {
-    emitEntries(res, o, planFence(o.dir, 'docs/project-structure.md', 'graph', renderMarkdown(graph, { maxNodes: 25 }),
+    emitEntries(res, o, planFence(o.dir, 'docs/project-structure.md', 'graph', graphBody(graph),
       '# Project structure\n\n'));
   }
   if (want('mirrors')) runMirrors(res, o);
