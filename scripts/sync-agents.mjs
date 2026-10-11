@@ -309,6 +309,15 @@ export function parseModelMap(s) {
 // Sync
 // ---------------------------------------------------------------------------
 
+// File stem a mirror gets for an agent name.
+const stemOf = (name) => name.replace(/[^A-Za-z0-9._-]/g, '-');
+
+// Project-relative path of the mirror that `target` writes for the agent called `name`.
+export function mirrorPath(target, name) {
+  const { dir, ext } = TARGETS[target];
+  return `${dir}/${stemOf(name)}${ext}`;
+}
+
 function listAgents(root) {
   const base = path.join(root, AGENTS_DIR);
   const found = [];
@@ -382,7 +391,7 @@ export function syncAgents({ dir = process.cwd(), targets, modelMap = {}, check 
   const agents = listAgents(root).map((rel) => {
     const stem = path.basename(rel, '.md');
     const agent = parseAgent(fs.readFileSync(path.join(root, AGENTS_DIR, rel), 'utf8'), stem);
-    return { rel, file: agent.name.replace(/[^A-Za-z0-9._-]/g, '-'), agent };
+    return { rel, file: stemOf(agent.name), agent };
   });
 
   for (const target of targets) {

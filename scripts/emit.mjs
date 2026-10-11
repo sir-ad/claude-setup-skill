@@ -5,32 +5,40 @@
 //   node scripts/emit.mjs [dir] --write <items> [--stage] [--targets <tools>] [--intent "<text>"]
 //                         [--model-map fast=X,standard=Y,deep=Z] [--dry-run]
 //
-// items: router, agents-doc, structure-doc, mirrors (comma separated). Prints one line per file:
-// write | update | stage | remove | skip, then a summary. Exit 0, or 2 on usage errors.
+// items: router, agents-doc, structure-doc, drafts, mirrors (comma separated). Prints one line per
+// file: write | update | stage | remove | skip (--dry-run adds plan, for mirrors that do not exist
+// yet), then a summary. Exit 0, or 2 on usage errors.
 // --stage writes every .claude/ output under .claude-setup/staged/ plus apply.mjs, for permission
-// modes that refuse writes under .claude/. Zero dependencies; all logic is in this repo's scripts.
+// modes that refuse writes under .claude/. .claude/<rel> is staged at staged/claude/<rel>, because
+// Claude Code also refuses a path with a .claude segment. drafts: files the model wrote under
+// .claude-setup/drafts/ (rules/x.md for .claude/rules/x.md, permissions.json merged into
+// settings.json). Zero dependencies; all logic is in this repo's scripts.
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { detect } from './detect.mjs';
 import { buildGraph, renderMarkdown } from './graph.mjs';
 import { deriveRoster, renderRosterMarkdown, toRouterConfig } from './roster.mjs';
-import { syncAgents, TARGETS, parseModelMap } from './sync-agents.mjs';
+import { syncAgents, TARGETS, parseModelMap, parseAgent, mirrorPath } from './sync-agents.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROUTE_SRC = path.join(HERE, 'router', 'route.mjs');
-const ITEMS = ['router', 'agents-doc', 'structure-doc', 'mirrors'];
+const ITEMS = ['router', 'agents-doc', 'structure-doc', 'drafts', 'mirrors'];
 const AGENTS = '.claude/agents';
 const STAGE_DIR = '.claude-setup/staged';
+const DRAFTS_DIR = '.claude-setup/drafts';
+const SETTINGS = '.claude/settings.json';
+const PERM_KEYS = ['allow', 'ask', 'deny'];
 const SCHEMA = 'https://json.schemastore.org/claude-code-settings.json';
 const ROUTE_CMD = 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/route.mjs"';
 const HOOK_SPEC = { hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: ROUTE_CMD, timeout: 5 }] }] } };
 const ROUTE_LOG = '.claude/route-log.jsonl';
 const USAGE = `usage: node scripts/emit.mjs [dir] --write <items> [--stage] [--targets <tools>] [--intent "<text>"]
                         [--model-map fast=X,standard=Y,deep=Z] [--dry-run]
-items: router, agents-doc, structure-doc, mirrors (comma separated)
+items: router, agents-doc, structure-doc, drafts, mirrors (comma separated)
 `;
 
 class UsageError extends Error {}
@@ -58,7 +66,9 @@ function blockedBy(dir, rel) {
 
 // ---------------------------------------------------------------------------
 // Settings merge. Pure. Existing keys win; a hook group is added only when none of its commands
-// is already registered for that event. Shared with .claude-setup/apply.mjs, which inlines it.
+// is already registered for that event. permissions.allow/ask/deny are unioned (existing entries
+// first); other keys inside permissions keep existing-wins. Shared with .claude-setup/apply.mjs,
+// which inlines it.
 // ---------------------------------------------------------------------------
 
 export function mergeSettings(current, desired) {
@@ -66,7 +76,25 @@ export function mergeSettings(current, desired) {
   if (!isPlainObject(current)) throw new Error('settings.json must be a JSON object');
   const out = { ...current };
   for (const [key, value] of Object.entries(desired)) {
-    if (key !== 'hooks' && out[key] === undefined) out[key] = value;
+    if (key === 'hooks' || key === 'permissions') continue;
+    if (out[key] === undefined) out[key] = value;
+  }
+  if (desired.permissions !== undefined) {
+    if (out.permissions === undefined) out.permissions = {};
+    if (!isPlainObject(out.permissions) || !isPlainObject(desired.permissions)) {
+      throw new Error('settings.json: "permissions" must be an object');
+    }
+    const perms = { ...out.permissions };
+    for (const [key, value] of Object.entries(desired.permissions)) {
+      if (!['allow', 'ask', 'deny'].includes(key)) {
+        if (perms[key] === undefined) perms[key] = value;
+        continue;
+      }
+      const have = perms[key] === undefined ? [] : perms[key];
+      if (!Array.isArray(have) || !Array.isArray(value)) throw new Error(`settings.json: permissions.${key} must be an array`);
+      perms[key] = [...have, ...value.filter((v, i) => !have.includes(v) && value.indexOf(v) === i)];
+    }
+    out.permissions = perms;
   }
   if (desired.hooks === undefined) return out;
   if (out.hooks === undefined) out.hooks = {};
@@ -103,32 +131,39 @@ function fileEntry(rel, now, data, reason) {
   return { rel, verb: 'update', data: buf, reason };
 }
 
+// settings.json with `desired` merged in. -> { entry } or { error } (unreadable or malformed file).
+function planSettings(dir, desired, reason) {
+  const now = readIf(path.join(dir, SETTINGS));
+  let current = null;
+  let merged;
+  try {
+    if (now !== null) current = JSON.parse(now.toString('utf8'));
+    merged = mergeSettings(now === null ? { $schema: SCHEMA } : current, desired);
+  } catch (e) {
+    return { error: e.message };
+  }
+  if (now !== null && JSON.stringify(merged) === JSON.stringify(current)) {
+    return { entry: { rel: SETTINGS, verb: 'skip', reason: `${reason} already present` } };
+  }
+  return { entry: { rel: SETTINGS, verb: now === null ? 'write' : 'update', reason,
+    data: Buffer.from(`${JSON.stringify(merged, null, 2)}\n`) } };
+}
+
 // Router unit: all four files or none. Any precondition failure skips every file of the unit.
-function planRouter(dir, roster) {
-  const rels = ['.claude/hooks/route.mjs', '.claude/router.json', '.claude/settings.json', '.gitignore'];
-  const unit = (why) => rels.map((rel) => ({ rel, verb: 'skip', reason: `router unit skipped: ${why}` }));
+// `perms` (from drafts) is merged into the same settings.json write. -> { entries, skipped }.
+function planRouter(dir, roster, perms) {
+  const rels = ['.claude/hooks/route.mjs', '.claude/router.json', SETTINGS, '.gitignore'];
+  const unit = (why) => ({ skipped: true, entries: rels.map((rel) => ({ rel, verb: 'skip', reason: `router unit skipped: ${why}` })) });
   const blocked = blockedBy(dir, rels[0]);
   if (blocked) return unit(`${blocked} is not a directory`);
   const routeSrc = fs.readFileSync(ROUTE_SRC);
   const routeNow = readIf(path.join(dir, rels[0]));
   if (routeNow !== null && !routeNow.equals(routeSrc)) return unit(`${rels[0]} differs from the skill copy`);
 
-  const settingsNow = readIf(path.join(dir, rels[2]));
-  let current = null;
-  let merged;
-  try {
-    if (settingsNow !== null) current = JSON.parse(settingsNow.toString('utf8'));
-    merged = mergeSettings(settingsNow === null ? { $schema: SCHEMA } : current, HOOK_SPEC);
-  } catch (e) {
-    return unit(`${rels[2]}: ${e.message}`);
-  }
-  let settings;
-  if (settingsNow !== null && JSON.stringify(merged) === JSON.stringify(current)) {
-    settings = { rel: rels[2], verb: 'skip', reason: 'UserPromptSubmit hook already present' };
-  } else {
-    settings = { rel: rels[2], verb: settingsNow === null ? 'write' : 'update', reason: 'UserPromptSubmit hook',
-      data: Buffer.from(`${JSON.stringify(merged, null, 2)}\n`) };
-  }
+  const hook = perms ? { ...HOOK_SPEC, permissions: perms } : HOOK_SPEC;
+  const planned = planSettings(dir, hook, perms ? 'UserPromptSubmit hook, permissions' : 'UserPromptSubmit hook');
+  if (planned.error) return unit(`${rels[2]}: ${planned.error}`);
+  const settings = planned.entry;
 
   const ignoreNow = readIf(path.join(dir, rels[3]));
   let ignore;
@@ -142,12 +177,15 @@ function planRouter(dir, roster) {
     }
   }
 
-  return [
-    fileEntry(rels[0], routeNow, routeSrc),
-    fileEntry(rels[1], readIf(path.join(dir, rels[1])), `${JSON.stringify(toRouterConfig(roster), null, 2)}\n`),
-    settings,
-    ignore,
-  ];
+  return {
+    skipped: false,
+    entries: [
+      fileEntry(rels[0], routeNow, routeSrc),
+      fileEntry(rels[1], readIf(path.join(dir, rels[1])), `${JSON.stringify(toRouterConfig(roster), null, 2)}\n`),
+      settings,
+      ignore,
+    ],
+  };
 }
 
 // Fenced doc: replace only the text between the markers. A missing file is created with `head`.
@@ -169,6 +207,78 @@ function planFence(dir, rel, name, body, head) {
   return [{ rel, verb: 'update', data: Buffer.from(next), reason: 'fence' }];
 }
 
+// Files under abs, as sorted '/'-separated paths relative to it. Symlinks are ignored.
+function walkFiles(abs, rel = '') {
+  let ents;
+  try { ents = fs.readdirSync(path.join(abs, rel), { withFileTypes: true }); } catch { return []; }
+  return ents.flatMap((e) => {
+    const r = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) return walkFiles(abs, r);
+    return e.isFile() ? [r] : [];
+  }).sort();
+}
+
+// Allow/ask/deny lists from permissions.json (flat, or under "permissions"). Other keys are
+// ignored. -> { perms } (null when empty) or { error }. Never echoes file content.
+function parsePermissions(buf) {
+  let v;
+  try { v = JSON.parse(buf.toString('utf8')); } catch { return { error: 'invalid JSON' }; }
+  if (v && typeof v === 'object' && !Array.isArray(v) && v.permissions !== undefined) v = v.permissions;
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return { error: 'expected an object with allow, ask, deny' };
+  const perms = {};
+  for (const k of PERM_KEYS) {
+    if (v[k] === undefined) continue;
+    if (!Array.isArray(v[k]) || v[k].some((x) => typeof x !== 'string')) return { error: `${k} must be an array of strings` };
+    if (v[k].length) perms[k] = v[k];
+  }
+  return { perms: Object.keys(perms).length ? perms : null };
+}
+
+// Draft files (.claude-setup/drafts/<rel> -> .claude/<rel>) as entries, plus the permissions to merge
+// into settings.json. In place, a draft never replaces a different existing file; staging does,
+// as apply.mjs does. ok is false when a draft was left behind, so the folder is kept.
+// -> { present, entries, perms, ok }
+function planDrafts(dir, stage) {
+  const base = path.join(dir, DRAFTS_DIR);
+  const files = walkFiles(base);
+  const out = { present: isDir(base), entries: [], perms: null, ok: true };
+  const skipDraft = (rel, reason) => {
+    out.entries.push({ rel, verb: 'skip', reason });
+    out.ok = false;
+  };
+  for (const rel of files) {
+    const src = `${DRAFTS_DIR}/${rel}`;
+    const dest = `.claude/${rel}`;
+    if (rel === 'permissions.json') {
+      const r = parsePermissions(fs.readFileSync(path.join(base, rel)));
+      if (r.error) skipDraft(src, r.error);
+      else out.perms = r.perms;
+      continue;
+    }
+    if (rel === 'settings.json') { skipDraft(src, 'put permissions in permissions.json'); continue; }
+    const blocked = blockedBy(dir, dest);
+    if (blocked) { skipDraft(dest, `${blocked} is not a directory`); continue; }
+    if (isDir(path.join(dir, dest))) { skipDraft(dest, 'is a directory'); continue; }
+    const e = fileEntry(dest, readIf(path.join(dir, dest)), fs.readFileSync(path.join(base, rel)), 'draft');
+    if (e.verb === 'update' && !stage) skipDraft(dest, 'exists and differs');
+    else out.entries.push(e);
+  }
+  return out;
+}
+
+// Names of agents waiting to be applied: drafts and anything already staged. Agents without a
+// description are left out, as sync-agents skips them.
+function pendingAgentNames(dir) {
+  const names = [];
+  for (const where of [`${DRAFTS_DIR}/agents`, `${STAGE_DIR}/claude/agents`, `${STAGE_DIR}/.claude/agents`]) {
+    for (const rel of walkFiles(path.join(dir, where)).filter((f) => f.endsWith('.md'))) {
+      const a = parseAgent(fs.readFileSync(path.join(dir, where, rel), 'utf8'), path.basename(rel, '.md'));
+      if (a.description) names.push(a.name);
+    }
+  }
+  return [...new Set(names)];
+}
+
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
@@ -188,13 +298,16 @@ function put(res, o, rel, verb, data, reason) {
   fs.writeFileSync(abs, data);
 }
 
-// Under --stage, .claude/ outputs go to the staging folder instead.
+// Under --stage, .claude/ outputs go to the staging folder instead, as claude/<rel>: the path
+// has no .claude segment, which Claude Code's Write tool refuses.
+const stagedRel = (rel) => `${STAGE_DIR}/${rel.startsWith('.claude/') ? `claude/${rel.slice('.claude/'.length)}` : rel}`;
+
 function emitEntries(res, o, entries) {
   for (const e of entries) {
     if (e.verb === 'skip') { skip(res, e.rel, e.reason); continue; }
     const staged = o.stage && e.rel.startsWith('.claude/');
     const verb = staged ? 'stage' : e.verb;
-    put(res, o, staged ? `${STAGE_DIR}/${e.rel}` : e.rel, verb, e.data, e.reason);
+    put(res, o, staged ? stagedRel(e.rel) : e.rel, verb, e.data, e.reason);
     res.n[verb]++;
   }
 }
@@ -208,8 +321,20 @@ function hasAgentFiles(dir) {
   return walk('');
 }
 
-function runMirrors(res, o) {
-  if (!hasAgentFiles(o.dir)) return skip(res, 'mirrors', 'no .claude/agents');
+// getRoster() derives the roster on demand; used only to plan mirrors in a dry run.
+function runMirrors(res, o, getRoster) {
+  if (!hasAgentFiles(o.dir)) {
+    const pending = pendingAgentNames(o.dir);
+    if (o.dryRun) {
+      // Nothing to read yet: plan from the agents that will exist, else from the roster.
+      const names = pending.length ? pending : getRoster().roles.map((r) => r.name);
+      if (!names.length) return skip(res, 'mirrors', 'no agents');
+      for (const t of o.targets) for (const n of names) line(res, `plan ${mirrorPath(t, n)} (mirror)`);
+      return undefined;
+    }
+    if (pending.length) return skip(res, 'mirrors', o.stage ? 'agents are staged; apply.mjs creates the mirrors' : 'agents are staged, not applied');
+    return skip(res, 'mirrors', 'no .claude/agents');
+  }
   const r = syncAgents({ dir: o.dir, targets: o.targets, modelMap: o.modelMap, dryRun: o.dryRun });
   for (const w of r.warnings) res.err.write(`warn: ${w}\n`);
   for (const a of r.actions) {
@@ -217,24 +342,29 @@ function runMirrors(res, o) {
     else if (a.action === 'conflict') { line(res, `skip mirrors ${a.target}: ${a.file}`); res.n.skip++; }
     else { line(res, `${a.action} ${a.file}`); res.n[a.action]++; }
   }
+  return undefined;
 }
 
 // Runs in the staged project: copies each staged file over its real path. settings.json is merged.
+// staged/claude/<rel> goes to .claude/<rel> (staged/.claude/<rel> is accepted too); any other
+// staged path keeps its path. `sync`, when set, is { script, targets, modelMap }: after a clean
+// apply, sync-agents mirrors .claude/agents to the other tools.
 // Source is written verbatim into .claude-setup/apply.mjs, so it must stay self-contained.
-function applyMain() {
+function applyMain(sync) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const staged = path.join(root, '.claude-setup', 'staged');
-  const walk = (rel) => fs.readdirSync(path.join(staged, rel), { withFileTypes: true })
-    .flatMap((e) => (e.isDirectory() ? walk(path.join(rel, e.name)) : [path.join(rel, e.name).split(path.sep).join('/')]));
-  const files = fs.existsSync(staged) ? walk('').sort() : [];
+  const walk = (base, rel) => fs.readdirSync(path.join(base, rel), { withFileTypes: true })
+    .flatMap((e) => (e.isDirectory() ? walk(base, path.join(rel, e.name)) : [path.join(rel, e.name).split(path.sep).join('/')]));
+  const files = fs.existsSync(staged) ? walk(staged, '').sort() : [];
   if (!files.length) {
     console.log('nothing staged');
     return 0;
   }
   let failed = 0;
-  for (const rel of files) {
+  for (const file of files) {
+    const rel = file.startsWith('claude/') ? `.claude/${file.slice('claude/'.length)}` : file;
     const dest = path.join(root, rel);
-    const data = fs.readFileSync(path.join(staged, rel));
+    const data = fs.readFileSync(path.join(staged, file));
     const now = fs.existsSync(dest) ? fs.readFileSync(dest) : null;
     try {
       let text = data;
@@ -267,23 +397,38 @@ function applyMain() {
   }
   fs.rmSync(staged, { recursive: true, force: true });
   console.log('removed .claude-setup/staged');
+  if (!sync || !fs.existsSync(path.join(root, '.claude', 'agents')) || !walk(path.join(root, '.claude', 'agents'), '').some((f) => f.endsWith('.md'))) return 0;
+  const args = [sync.script, '--dir', root, '--targets', sync.targets.join(',')];
+  if (sync.modelMap) args.push('--model-map', sync.modelMap);
+  const shown = ['node', ...args].map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : JSON.stringify(a))).join(' ');
+  if (!fs.existsSync(sync.script)) {
+    console.log(`sync-agents.mjs not found at ${sync.script}; to create the agent mirrors run:\n${shown}`);
+    return 0;
+  }
+  console.log(`run ${shown}`);
+  const r = spawnSync(process.execPath, args, { stdio: 'inherit' });
+  if (r.status !== 0) {
+    console.error(`sync-agents failed (${r.error ? r.error.message : `exit ${r.status}`}); applied files stay in place. Fix it and run:\n${shown}`);
+    return 1;
+  }
   return 0;
 }
 
-function applySource() {
+function applySource(sync) {
   return [
     '#!/usr/bin/env node',
-    '// Generated by scripts/emit.mjs --stage: copies the staged .claude/ files into place. Zero dependencies.',
+    '// Generated by scripts/emit.mjs --stage: copies the staged files into place. Zero dependencies.',
     '// Run from the project root: node .claude-setup/apply.mjs',
     "import fs from 'node:fs';",
     "import path from 'node:path';",
+    "import { spawnSync } from 'node:child_process';",
     "import { fileURLToPath } from 'node:url';",
     '',
     mergeSettings.toString(),
     '',
     applyMain.toString(),
     '',
-    'process.exitCode = applyMain();',
+    `process.exitCode = applyMain(${JSON.stringify(sync)});`,
     '',
   ].join('\n');
 }
@@ -292,9 +437,12 @@ const STAGE_README = [
   '# Staged Claude Code config',
   '',
   'claude-setup staged these `.claude/` files here because Claude Code refused writes under `.claude/` in this permission mode.',
-  'Each file under `staged/` sits at the path it replaces. `settings.json` is merged into the real file, never overwritten.',
+  'The folder `staged/claude/` stands for `.claude/`: `staged/claude/rules/code-style.md` is installed as `.claude/rules/code-style.md`.',
+  'Any other path under `staged/` is installed at the same path. `settings.json` is merged into the real file, never overwritten:',
+  'permission lists are added to, and existing settings and hooks stay.',
   'To apply them, run from the project root: `node .claude-setup/apply.mjs`',
-  'On success the script deletes `staged/`. Delete this folder to discard the staged files.',
+  'On success the script deletes `staged/`. If agent mirrors were requested, it then runs sync-agents to create them.',
+  'Delete this folder to discard the staged files.',
   '',
 ].join('\n');
 
@@ -324,12 +472,24 @@ function runItems(o, res) {
   const want = (i) => o.items.includes(i);
   let graph = null;
   let roster = null;
+  const getRoster = () => {
+    if (!roster) {
+      graph = graph || buildGraph(o.dir);
+      roster = deriveRoster(o.dir, { intent: o.intent, detection: detect(o.dir), graph });
+    }
+    return roster;
+  };
   if (want('router') || want('agents-doc') || want('structure-doc')) {
-    const detection = detect(o.dir);
     graph = buildGraph(o.dir);
-    if (want('router') || want('agents-doc')) roster = deriveRoster(o.dir, { intent: o.intent, detection, graph });
+    if (want('router') || want('agents-doc')) getRoster();
   }
-  if (want('router')) emitEntries(res, o, planRouter(o.dir, roster));
+  const drafts = want('drafts') ? planDrafts(o.dir, o.stage) : null;
+  let settingsDone = false;
+  if (want('router')) {
+    const router = planRouter(o.dir, roster, drafts && drafts.perms);
+    emitEntries(res, o, router.entries);
+    settingsDone = !router.skipped;
+  }
   if (want('agents-doc')) {
     emitEntries(res, o, planFence(o.dir, 'docs/agents.md', 'roster', rosterBody(roster),
       '# Agents\n\nRoles, scopes and model tiers for agents working in this repo.\n\n'));
@@ -338,10 +498,32 @@ function runItems(o, res) {
     emitEntries(res, o, planFence(o.dir, 'docs/project-structure.md', 'graph', graphBody(graph),
       '# Project structure\n\n'));
   }
-  if (want('mirrors')) runMirrors(res, o);
+  if (drafts && !drafts.present) skip(res, 'drafts', `no ${DRAFTS_DIR}`);
+  else if (drafts) {
+    emitEntries(res, o, drafts.entries);
+    if (drafts.perms && !settingsDone) {
+      const blocked = blockedBy(o.dir, SETTINGS);
+      const planned = blocked ? { error: `${blocked} is not a directory` } : planSettings(o.dir, { permissions: drafts.perms }, 'permissions');
+      if (planned.error) { skip(res, SETTINGS, planned.error); drafts.ok = false; }
+      else emitEntries(res, o, [planned.entry]);
+    }
+  }
+  if (want('mirrors')) runMirrors(res, o, getRoster);
   if (o.stage && res.n.stage > 0) {
-    put(res, o, '.claude-setup/apply.mjs', 'write', applySource());
+    const sync = o.targets.length && (want('mirrors') || pendingAgentNames(o.dir).length)
+      ? { script: path.join(HERE, 'sync-agents.mjs'), targets: o.targets,
+        modelMap: Object.entries(o.modelMap).map(([k, v]) => `${k}=${v}`).join(',') || null }
+      : null;
+    put(res, o, '.claude-setup/apply.mjs', 'write', applySource(sync));
     put(res, o, '.claude-setup/README.md', 'write', STAGE_README);
+  }
+  // Drafts are copies of what was written or staged; keep them when something was left behind.
+  if (drafts && drafts.present && drafts.ok) {
+    line(res, `remove ${DRAFTS_DIR}`);
+    res.n.remove++;
+    if (!o.dryRun) fs.rmSync(path.join(o.dir, DRAFTS_DIR), { recursive: true, force: true });
+  } else if (drafts && drafts.present) {
+    line(res, `note: kept ${DRAFTS_DIR}; some drafts were not written`);
   }
 }
 

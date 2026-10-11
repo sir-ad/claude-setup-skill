@@ -165,12 +165,12 @@ test('--stage writes .claude outputs only under .claude-setup, and apply.mjs ins
 
   const r = emit(dir, ['--write', 'router,agents-doc', '--stage']);
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /^stage \.claude-setup\/staged\/\.claude\/hooks\/route\.mjs$/m);
-  assert.match(r.out, /^stage \.claude-setup\/staged\/\.claude\/settings\.json \(UserPromptSubmit hook\)$/m);
+  assert.match(r.out, /^stage \.claude-setup\/staged\/claude\/hooks\/route\.mjs$/m);
+  assert.match(r.out, /^stage \.claude-setup\/staged\/claude\/settings\.json \(UserPromptSubmit hook\)$/m);
   assert.match(r.out, /^write docs\/agents\.md$/m, 'files outside .claude/ are written directly');
   assert.deepEqual(tree(dir).filter((f) => f.startsWith('.claude/')), claudeBefore);
   assert.equal(read(dir, '.claude/settings.json'), settingsBefore);
-  assert.ok(exists(dir, '.claude-setup/staged/.claude/router.json'));
+  assert.ok(exists(dir, '.claude-setup/staged/claude/router.json'));
   assert.ok(exists(dir, '.claude-setup/apply.mjs'));
   assert.ok(exists(dir, '.claude-setup/README.md'));
   const readme = read(dir, '.claude-setup/README.md');
@@ -214,7 +214,7 @@ test('--dry-run prints the plan and writes nothing', () => {
   const before = tree(dir);
   const r = emit(dir, ['--write', `${ALL},mirrors`, '--targets', 'codex', '--stage', '--dry-run']);
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /^stage \.claude-setup\/staged\/\.claude\/hooks\/route\.mjs$/m);
+  assert.match(r.out, /^stage \.claude-setup\/staged\/claude\/hooks\/route\.mjs$/m);
   assert.match(r.out, /^write \.codex\/agents\/reviewer\.toml$/m);
   assert.match(r.out, /\(dry run: nothing written\)$/m);
   assert.deepEqual(tree(dir), before);
@@ -238,4 +238,287 @@ test('mergeSettings adds a hook group once and rejects malformed hooks', () => {
   assert.throws(() => mergeSettings({ hooks: [] }, HOOK), /"hooks" must be an object/);
   assert.throws(() => mergeSettings({ hooks: { UserPromptSubmit: {} } }, HOOK), /must be an array/);
   assert.throws(() => mergeSettings(null, HOOK), /JSON object/);
+});
+
+// ---------------------------------------------------------------------------
+// Staging layout, drafts, permissions merge, mirrors after apply
+// ---------------------------------------------------------------------------
+
+const SYNC_SCRIPT = path.join(HERE, '..', 'scripts', 'sync-agents.mjs');
+const applyIn = (dir) => spawnSync(process.execPath, [path.join(dir, '.claude-setup/apply.mjs')], { cwd: dir, encoding: 'utf8' });
+const stagedFiles = (dir) => (exists(dir, '.claude-setup/staged') ? tree(dir, '.claude-setup/staged').map((f) => path.relative('.claude-setup/staged', f)) : []);
+const PERMS = { allow: ['Bash(npm test)', 'Bash(npm run lint)'], ask: ['Bash(git push:*)'], deny: ['Read(./.env)'] };
+const FRONTEND = '---\nname: frontend\ndescription: Builds UI.\ntools: Read, Edit\nmodel: sonnet\n---\nBuild UI.\n';
+const draft = (rel, text) => [`.claude-setup/drafts/${rel}`, text];
+
+test('mergeSettings unions permission lists, existing entries first', () => {
+  const cur = { permissions: { allow: ['a', 'b'], defaultMode: 'plan' }, env: { X: '1' } };
+  const out = mergeSettings(cur, { permissions: { allow: ['b', 'c', 'c'], ask: ['q'], deny: ['d'], defaultMode: 'acceptEdits', extra: 1 }, env: { X: '2' } });
+  assert.deepEqual(out.permissions.allow, ['a', 'b', 'c']);
+  assert.deepEqual(out.permissions.ask, ['q']);
+  assert.deepEqual(out.permissions.deny, ['d']);
+  assert.equal(out.permissions.defaultMode, 'plan', 'other permission keys: existing wins');
+  assert.equal(out.permissions.extra, 1);
+  assert.deepEqual(out.env, { X: '1' });
+  assert.deepEqual(cur.permissions.allow, ['a', 'b'], 'input is not changed');
+  assert.deepEqual(mergeSettings(out, { permissions: { allow: ['a', 'c'] } }), out, 'idempotent');
+  assert.deepEqual(mergeSettings({}, { permissions: { allow: ['a'] } }), { permissions: { allow: ['a'] } });
+  assert.throws(() => mergeSettings({ permissions: [] }, { permissions: { allow: ['a'] } }), /"permissions" must be an object/);
+  assert.throws(() => mergeSettings({ permissions: { allow: 'a' } }, { permissions: { allow: ['a'] } }), /permissions\.allow must be an array/);
+});
+
+test('staged .claude outputs have no .claude path segment, and apply.mjs maps them back', () => {
+  const dir = project();
+  const r = emit(dir, ['--write', 'router', '--stage']);
+  assert.equal(r.code, 0, r.err);
+  const files = stagedFiles(dir);
+  assert.deepEqual(files, ['claude/hooks/route.mjs', 'claude/router.json', 'claude/settings.json']);
+  for (const f of tree(dir, '.claude-setup')) assert.ok(!f.split(path.sep).includes('.claude'), f);
+  assert.match(read(dir, '.claude-setup/README.md'), /staged\/claude\//);
+  const a = applyIn(dir);
+  assert.equal(a.status, 0, a.stderr);
+  assert.match(a.stdout, /^write \.claude\/router\.json$/m);
+  assert.ok(exists(dir, '.claude/hooks/route.mjs'));
+  assert.equal(hookCount(dir), 1);
+  assert.equal(stagedFiles(dir).length, 0);
+});
+
+test('apply.mjs still accepts the old staged/.claude layout and keeps other staged paths', () => {
+  const dir = project();
+  assert.equal(emit(dir, ['--write', 'router', '--stage']).code, 0);
+  // Re-create the staging area the old way, plus a non-.claude file.
+  fs.rmSync(path.join(dir, '.claude-setup/staged'), { recursive: true });
+  const put = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(dir, rel), text);
+  };
+  put('.claude-setup/staged/.claude/rules/old.md', 'old layout\n');
+  put('.claude-setup/staged/claude/rules/new.md', 'new layout\n');
+  put('.claude-setup/staged/docs/extra.md', 'plain path\n');
+  const a = applyIn(dir);
+  assert.equal(a.status, 0, a.stderr);
+  assert.equal(read(dir, '.claude/rules/old.md'), 'old layout\n');
+  assert.equal(read(dir, '.claude/rules/new.md'), 'new layout\n');
+  assert.equal(read(dir, 'docs/extra.md'), 'plain path\n');
+  assert.equal(exists(dir, '.claude/.claude'), false);
+  assert.equal(exists(dir, '.claude/claude'), false);
+});
+
+test('drafts are written in place, permissions merge into settings.json, and the folder is removed', () => {
+  const existing = { permissions: { allow: ['Bash(ls)'], deny: ['Read(./.env)'] }, env: { A: '1' } };
+  const dir = project({
+    '.claude/settings.json': JSON.stringify(existing),
+    '.claude/rules/mine.md': 'mine\n',
+    ...Object.fromEntries([
+      draft('rules/code-style.md', '# Style\n'),
+      draft('rules/mine.md', 'different\n'),
+      draft('agents/frontend.md', FRONTEND),
+      draft('skills/orchestrate/SKILL.md', '# Orchestrate\n'),
+      draft('permissions.json', JSON.stringify(PERMS)),
+    ]),
+  });
+  const r = emit(dir, ['--write', 'drafts']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^write \.claude\/rules\/code-style\.md \(draft\)$/m);
+  assert.match(r.out, /^write \.claude\/agents\/frontend\.md \(draft\)$/m);
+  assert.match(r.out, /^write \.claude\/skills\/orchestrate\/SKILL\.md \(draft\)$/m);
+  assert.match(r.out, /^skip \.claude\/rules\/mine\.md \(exists and differs\)$/m);
+  assert.match(r.out, /^update \.claude\/settings\.json \(permissions\)$/m);
+  assert.equal(read(dir, '.claude/rules/mine.md'), 'mine\n', 'a different existing file is not overwritten in place');
+  assert.equal(read(dir, '.claude/rules/code-style.md'), '# Style\n');
+  assert.equal(exists(dir, '.claude/permissions.json'), false, 'permissions.json is merged, never copied');
+  const settings = JSON.parse(read(dir, '.claude/settings.json'));
+  assert.deepEqual(settings.permissions.allow, ['Bash(ls)', 'Bash(npm test)', 'Bash(npm run lint)']);
+  assert.deepEqual(settings.permissions.ask, PERMS.ask);
+  assert.deepEqual(settings.permissions.deny, ['Read(./.env)']);
+  assert.deepEqual(settings.env, { A: '1' });
+  assert.equal(exists(dir, '.claude-setup/drafts'), true, 'kept: one draft was left behind');
+  assert.match(r.out, /^note: kept \.claude-setup\/drafts/m);
+
+  fs.rmSync(path.join(dir, '.claude-setup/drafts/rules/mine.md'));
+  const again = emit(dir, ['--write', 'drafts']);
+  assert.match(again.out, /^skip \.claude\/rules\/code-style\.md \(unchanged\)$/m);
+  assert.match(again.out, /^skip \.claude\/settings\.json \(permissions already present\)$/m);
+  assert.match(again.out, /^remove \.claude-setup\/drafts$/m);
+  assert.equal(exists(dir, '.claude-setup/drafts'), false);
+});
+
+test('permissions draft creates settings.json with the schema, accepts the permissions wrapper, and ignores other keys', () => {
+  const dir = project(Object.fromEntries([
+    draft('permissions.json', JSON.stringify({ permissions: { allow: ['Bash(npm test)'], defaultMode: 'bypassPermissions' } })),
+  ]));
+  const r = emit(dir, ['--write', 'drafts']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^write \.claude\/settings\.json \(permissions\)$/m);
+  assert.deepEqual(JSON.parse(read(dir, '.claude/settings.json')), {
+    $schema: 'https://json.schemastore.org/claude-code-settings.json',
+    permissions: { allow: ['Bash(npm test)'] },
+  });
+  assert.equal(exists(dir, '.claude-setup/drafts'), false);
+});
+
+test('invalid permissions.json is skipped without echoing content, other drafts still land', () => {
+  const secret = 'SECRET-TOKEN-123';
+  const dir = project(Object.fromEntries([
+    draft('permissions.json', `{ "allow": ["${secret}"`),
+    draft('rules/a.md', 'a\n'),
+  ]));
+  const r = emit(dir, ['--write', 'drafts']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^skip \.claude-setup\/drafts\/permissions\.json \(invalid JSON\)$/m);
+  assert.doesNotMatch(r.out + r.err, new RegExp(secret));
+  assert.equal(read(dir, '.claude/rules/a.md'), 'a\n');
+  assert.equal(exists(dir, '.claude/settings.json'), false);
+  assert.equal(exists(dir, '.claude-setup/drafts/permissions.json'), true, 'kept so the model can fix it');
+  const bad = project(Object.fromEntries([draft('permissions.json', '{"allow":[1]}')]));
+  assert.match(emit(bad, ['--write', 'drafts']).out, /^skip \.claude-setup\/drafts\/permissions\.json \(allow must be an array of strings\)$/m);
+});
+
+test('--stage stages drafts, and one staged settings.json carries the permissions and the router hook', () => {
+  const existing = { permissions: { allow: ['Bash(ls)'] } };
+  const dir = project({
+    '.claude/settings.json': JSON.stringify(existing),
+    '.claude/rules/mine.md': 'mine\n',
+    ...Object.fromEntries([
+      draft('rules/mine.md', 'replacement\n'),
+      draft('rules/new.md', 'new\n'),
+      draft('permissions.json', JSON.stringify(PERMS)),
+    ]),
+  });
+  const claudeBefore = tree(dir).filter((f) => f.startsWith('.claude/'));
+  const r = emit(dir, ['--write', 'router,drafts', '--stage']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^stage \.claude-setup\/staged\/claude\/rules\/new\.md \(draft\)$/m);
+  assert.match(r.out, /^stage \.claude-setup\/staged\/claude\/rules\/mine\.md \(draft\)$/m);
+  assert.equal((r.out.match(/settings\.json/g) || []).length, 1, 'one settings line');
+  assert.match(r.out, /^stage \.claude-setup\/staged\/claude\/settings\.json \(UserPromptSubmit hook, permissions\)$/m);
+  assert.deepEqual(tree(dir).filter((f) => f.startsWith('.claude/')), claudeBefore, 'nothing written under .claude/');
+  assert.equal(exists(dir, '.claude-setup/drafts'), false);
+  const staged = JSON.parse(read(dir, '.claude-setup/staged/claude/settings.json'));
+  assert.deepEqual(staged.permissions.allow, ['Bash(ls)', ...PERMS.allow]);
+  assert.deepEqual(staged.permissions.deny, PERMS.deny);
+  assert.equal(staged.hooks.UserPromptSubmit.length, 1);
+
+  const a = applyIn(dir);
+  assert.equal(a.status, 0, a.stderr);
+  assert.equal(read(dir, '.claude/rules/mine.md'), 'replacement\n', 'apply overwrites, as the user approved');
+  assert.equal(read(dir, '.claude/rules/new.md'), 'new\n');
+  const settings = JSON.parse(read(dir, '.claude/settings.json'));
+  assert.deepEqual(settings.permissions.ask, PERMS.ask);
+  assert.equal(hookCount(dir), 1);
+});
+
+test('permissions draft alone is staged as settings.json when the router is not written', () => {
+  const dir = project(Object.fromEntries([draft('permissions.json', JSON.stringify(PERMS))]));
+  const r = emit(dir, ['--write', 'drafts', '--stage']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^stage \.claude-setup\/staged\/claude\/settings\.json \(permissions\)$/m);
+  assert.equal(exists(dir, '.claude/settings.json'), false);
+  assert.ok(exists(dir, '.claude-setup/apply.mjs'));
+  assert.equal(applyIn(dir).status, 0);
+  assert.deepEqual(JSON.parse(read(dir, '.claude/settings.json')).permissions, PERMS);
+});
+
+test('permissions still land when the router unit is skipped', () => {
+  const dir = project({
+    '.claude/hooks/route.mjs': '// hand-written hook\n',
+    ...Object.fromEntries([draft('permissions.json', JSON.stringify(PERMS))]),
+  });
+  const r = emit(dir, ['--write', 'router,drafts']);
+  assert.match(r.out, /^skip \.claude\/router\.json \(router unit skipped: /m);
+  assert.match(r.out, /^write \.claude\/settings\.json \(permissions\)$/m);
+  assert.deepEqual(JSON.parse(read(dir, '.claude/settings.json')).permissions, PERMS);
+  assert.equal(JSON.parse(read(dir, '.claude/settings.json')).hooks, undefined);
+});
+
+test('--dry-run with drafts writes and removes nothing', () => {
+  const dir = project(Object.fromEntries([draft('rules/a.md', 'a\n'), draft('permissions.json', JSON.stringify(PERMS))]));
+  const before = tree(dir);
+  const r = emit(dir, ['--write', 'drafts,router', '--stage', '--dry-run']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^stage \.claude-setup\/staged\/claude\/rules\/a\.md \(draft\)$/m);
+  assert.match(r.out, /^remove \.claude-setup\/drafts$/m);
+  assert.deepEqual(tree(dir), before);
+  assert.equal(emit(project(), ['--write', 'drafts']).out.split('\n')[0], 'skip drafts (no .claude-setup/drafts)');
+});
+
+test('--dry-run mirrors lists planned mirror paths before any agent file exists', () => {
+  // From drafts and staged agents.
+  const dir = project({
+    ...Object.fromEntries([draft('agents/frontend.md', FRONTEND)]),
+    '.claude-setup/staged/claude/agents/backend.md': '---\nname: backend\ndescription: Builds APIs.\n---\nAPIs.\n',
+  });
+  const before = tree(dir);
+  const r = emit(dir, ['--write', 'mirrors', '--targets', 'codex,gemini', '--dry-run']);
+  assert.equal(r.code, 0, r.err);
+  for (const f of ['.codex/agents/frontend.toml', '.codex/agents/backend.toml', '.gemini/agents/frontend.md', '.gemini/agents/backend.md']) {
+    assert.match(r.out, new RegExp(`^plan ${f.replace(/\./g, '\\.')} \\(mirror\\)$`, 'm'));
+  }
+  assert.deepEqual(tree(dir), before);
+
+  // From the roster when nothing else is known.
+  const bare = project();
+  const roster = deriveRoster(bare, { intent: '' });
+  const rr = emit(bare, ['--write', 'mirrors', '--targets', 'codex', '--dry-run']);
+  assert.equal(rr.code, 0, rr.err);
+  const planned = rr.out.match(/^plan \.codex\/agents\/\S+\.toml \(mirror\)$/gm) || [];
+  assert.deepEqual(planned, roster.roles.map((x) => `plan .codex/agents/${x.name}.toml (mirror)`));
+  assert.ok(planned.some((l) => l.includes('/explorer.toml')));
+
+  // Real (non-dry) run before apply: nothing generated, says why.
+  const live = emit(dir, ['--write', 'mirrors', '--targets', 'codex']);
+  assert.match(live.out, /^skip mirrors \(agents are staged, not applied\)$/m);
+  assert.equal(exists(dir, '.codex'), false);
+});
+
+test('apply.mjs runs sync-agents after applying staged agents', () => {
+  const dir = project(Object.fromEntries([draft('agents/frontend.md', FRONTEND)]));
+  const r = emit(dir, ['--write', 'drafts,mirrors', '--stage', '--targets', 'codex', '--model-map', 'standard=gpt-5-mini']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^stage \.claude-setup\/staged\/claude\/agents\/frontend\.md \(draft\)$/m);
+  assert.match(r.out, /^skip mirrors \(agents are staged; apply\.mjs creates the mirrors\)$/m);
+  const source = read(dir, '.claude-setup/apply.mjs');
+  assert.ok(source.includes(JSON.stringify(SYNC_SCRIPT)), 'absolute sync-agents path embedded');
+  assert.equal(exists(dir, '.codex'), false);
+
+  const a = applyIn(dir);
+  assert.equal(a.status, 0, a.stdout + a.stderr);
+  assert.match(a.stdout, /^write \.claude\/agents\/frontend\.md$/m);
+  assert.match(a.stdout, /write\s+codex\s+\.codex\/agents\/frontend\.toml/);
+  assert.match(read(dir, '.codex/agents/frontend.toml'), /^model = "gpt-5-mini"$/m);
+  assert.equal(exists(dir, '.claude-setup/staged'), false);
+});
+
+test('apply.mjs without --targets or agents does not run sync-agents', () => {
+  const dir = project();
+  assert.equal(emit(dir, ['--write', 'router', '--stage']).code, 0);
+  assert.ok(!read(dir, '.claude-setup/apply.mjs').includes('sync-agents.mjs"'));
+  const a = applyIn(dir);
+  assert.equal(a.status, 0, a.stderr);
+  assert.doesNotMatch(a.stdout, /sync-agents/);
+});
+
+test('apply.mjs exits 1 when sync-agents fails and keeps the applied files; a missing script prints the command', () => {
+  // A hand-written file at the mirror path makes sync-agents exit 1.
+  const dir = project(Object.fromEntries([draft('agents/frontend.md', FRONTEND)]));
+  fs.mkdirSync(path.join(dir, '.codex/agents'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.codex/agents/frontend.toml'), 'hand written\n');
+  assert.equal(emit(dir, ['--write', 'drafts', '--stage', '--targets', 'codex']).code, 0);
+  const a = applyIn(dir);
+  assert.equal(a.status, 1, a.stdout + a.stderr);
+  assert.match(a.stderr, /sync-agents failed/);
+  assert.match(a.stderr, new RegExp(`node ${SYNC_SCRIPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} --dir `));
+  assert.ok(exists(dir, '.claude/agents/frontend.md'), 'applied files stay');
+  assert.equal(exists(dir, '.claude-setup/staged'), false, 'staged files are not restored');
+  assert.equal(read(dir, '.codex/agents/frontend.toml'), 'hand written\n');
+
+  const gone = project(Object.fromEntries([draft('agents/frontend.md', FRONTEND)]));
+  assert.equal(emit(gone, ['--write', 'drafts', '--stage', '--targets', 'codex,gemini']).code, 0);
+  const apply = path.join(gone, '.claude-setup/apply.mjs');
+  fs.writeFileSync(apply, read(gone, '.claude-setup/apply.mjs').replace(JSON.stringify(SYNC_SCRIPT), JSON.stringify(path.join(gone, 'missing-sync.mjs'))));
+  const b = applyIn(gone);
+  assert.equal(b.status, 0, b.stderr);
+  assert.match(b.stdout, /sync-agents\.mjs not found/);
+  assert.match(b.stdout, /--targets codex,gemini/);
+  assert.ok(exists(gone, '.claude/agents/frontend.md'));
 });
