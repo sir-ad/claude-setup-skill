@@ -1,0 +1,1 @@
+{"name":"mono","private":true,"version":"0.0.0","workspaces":["apps/*","packages/*"],"scripts":{"test":"turbo test","lint":"turbo lint"},"devDependencies":{"turbo":"^2.0.0","vitest":"^2.0.0"}}

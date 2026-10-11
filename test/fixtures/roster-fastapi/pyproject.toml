@@ -1,0 +1,11 @@
+[project]
+name = "orders-api"
+version = "0.3.0"
+description = "Orders service"
+dependencies = ["fastapi>=0.110", "sqlalchemy>=2.0", "alembic>=1.13", "uvicorn"]
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+[dependency-groups]
+dev = ["flask>=3.0", "sqlmodel>=0.0.31", "pyjwt"]
