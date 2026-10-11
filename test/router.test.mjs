@@ -338,6 +338,56 @@ test('CLI --json and --explain; built-in defaults when no config exists', () => 
   assert.equal(JSON.parse(d.stdout).role, 'frontend');
 });
 
+function emptyDir() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'router-test-'));
+  tmpDirs.push(dir);
+  return dir;
+}
+
+test('unconfigured: hook mode prints nothing, exits 0, and logs nothing', () => {
+  const dir = emptyDir();
+  const r = hookPrompt('Fix the button hover color in web/src/components/Button.tsx', { CLAUDE_PROJECT_DIR: dir });
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, '');
+  // A copy under .claude/hooks looks for ../router.json, which is missing as well.
+  fs.mkdirSync(path.join(dir, '.claude', 'hooks'), { recursive: true });
+  const copy = path.join(dir, '.claude', 'hooks', 'route.mjs');
+  fs.copyFileSync(SCRIPT, copy);
+  const c = spawnSync(process.execPath, [copy], { input: JSON.stringify({ prompt: 'fix the api handler' }), encoding: 'utf8', env: { PATH: process.env.PATH } });
+  assert.equal(c.status, 0);
+  assert.equal(c.stdout, '');
+  assert.equal(fs.existsSync(path.join(dir, '.claude', 'route-log.jsonl')), false);
+});
+
+test('unconfigured: --json and --explain still decide with built-in defaults and say so', () => {
+  const env = { ...process.env, CLAUDE_PROJECT_DIR: emptyDir() };
+  const j = spawnSync(process.execPath, [SCRIPT, '--json', 'add a button component to the page'], { encoding: 'utf8', env });
+  assert.equal(j.status, 0);
+  const jd = JSON.parse(j.stdout);
+  assert.equal(jd.role, 'frontend');
+  assert.ok(jd.reasons.includes('unconfigured: no .claude/router.json found'), jd.reasons.join(' | '));
+  const e = spawnSync(process.execPath, [SCRIPT, '--explain', 'add a button component to the page'], { encoding: 'utf8', env });
+  assert.equal(e.status, 0);
+  assert.match(e.stdout, /Decision: role=frontend/);
+  assert.match(e.stdout, /unconfigured: no \.claude\/router\.json found/);
+  const configured = spawnSync(process.execPath, [SCRIPT, '--json', 'add a button component to the page'], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir() } });
+  assert.ok(!JSON.parse(configured.stdout).reasons.some((r) => /unconfigured/.test(r)));
+});
+
+test('CI prompts on the t3 config: an edit aimed at infra beats failure words', () => {
+  const ci = classify('the e2e workflow fails on windows, fix the CI workflow', T3);
+  assert.equal(ci.role, 'infra');
+  assert.equal(ci.agent, 'infra');
+  assert.equal(ci.delegate, true);
+  assert.ok(ci.reasons.some((r) => /failure words not counted/.test(r)));
+  assert.equal(classify('fix the CI workflow', T3).role, 'infra');
+  const why = classify('why is CI failing?', T3);
+  assert.ok(['test-runner', 'main'].includes(why.role), why.role);
+  assert.equal(why.delegate, false);
+  assert.equal(classify('run the tests', T3).role, 'test-runner');
+  assert.equal(classify('Fix the flaky test', T3).role, 'test-runner'); // failure words alone still point to the runner
+});
+
 // ---------------------------------------------------------------------------
 // Optional backends against a local stub server
 // ---------------------------------------------------------------------------

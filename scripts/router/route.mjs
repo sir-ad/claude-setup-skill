@@ -5,7 +5,8 @@
 //   node route.mjs --json "text"     decision JSON
 // Self-contained and dependency-free (Node >= 18): the skill copies this file to
 // .claude/hooks/route.mjs and writes .claude/router.json next to it. The router is advice,
-// never authority: it always exits 0, prints nothing on bad input, and never logs prompt text.
+// never authority: it always exits 0, prints nothing on bad input or when unconfigured (no router.json
+// found), and never logs prompt text.
 // Env: CLAUDE_SETUP_ROUTER=off|ollama|decider, CLAUDE_SETUP_ROUTER_MODEL, CLAUDE_SETUP_ROUTER_URL (ollama chat
 // endpoint), CLAUDE_SETUP_ROUTER_TIMEOUT_MS (max 1500), CLAUDE_SETUP_DECIDER_URL.
 
@@ -121,7 +122,7 @@ const LEXICON = {
   frontend: 'toggle, dark mode, theme, navbar, sidebar, dropdown, tooltip, dashboard, icon, animation, checkbox, popup, spinner, ui, ux, font, hover, banner, css',
   backend: 'endpoint, 500, 404, 401, 403, status code, handler, controller, middleware, rate limit, webhook, cors, payload, server, route, api, request, response',
   data: 'column, table, index, schema, migration, query, sql, foreign key, primary key, seed, backfill, orm, database, transaction',
-  infra: 'deploy, pipeline, docker, container, kubernetes, terraform, helm, staging, github actions, env var, provision',
+  infra: 'deploy, pipeline, docker, container, kubernetes, terraform, helm, staging, github actions, env var, provision, ci, workflow, workflows, .github/workflows',
   qa: 'test, spec, coverage, flaky, e2e, lint, assertion, mock, fixture, regression',
   docs: 'readme, documentation, docs, changelog',
 };
@@ -136,6 +137,7 @@ function compile(cfg) {
     tier: r.tier || 'standard',
     kw: (r.keywords || []).map((k) => [phrase(String(k)), String(k)]).filter(([p]) => p.length),
     kind: (KINDS.find(([, re]) => re.test(String(r.name).toLowerCase())) || [''])[0],
+    ro: /runner|reviewer/i.test(`${r.name} ${r.agent || ''}`), // no explicit flag in router.json: runners and reviewers are read-only
     globs: (r.paths || []).filter((g) => !/^[*/]+$/.test(g)).map((g) => ({ re: globToRe(String(g)), spec: specificity(String(g)) })), // catch-all globs carry no signal
   }));
   for (const r of roles) r.lex = (LEXICON[r.kind] || '').split(',').filter(Boolean).map((k) => [phrase(k), k.trim()]);
@@ -152,6 +154,9 @@ const BIG = phrases('refactor, migrate, redesign, architecture, rearchitect, rew
 const RISKY = phrases('security, secure, auth, authenticate, authentication, authorization, authorize, oauth, sso, jwt, password, credential, secret, encrypt, encryption, crypto, payment, billing, stripe, refund, permission, rbac, csrf, xss, vulnerability, pii, gdpr, migration, api key');
 const DOCS = phrases('readme, docs, documentation, changelog, comment');
 const TRIVIAL = phrases('typo, spelling, rename, one liner, one line, single line, tiny, trivial, minor, quick, whitespace, wording, comment, bump version');
+const EDIT = new Set(phrases('fix, update, change, add, remove, refactor').flat()); // edit verbs (stems)
+const FAIL = new Set(phrases('fail, broken, flaky, error').flat()); // failure words; fails/failing stem to fail
+const OBJ_STOP = new Set(phrases('for, to, in, on, at, of, from, with, by, and, but, so, then').flat()); // ends an edit's object
 const EN_WORDS = new Set(('the a an to of and in is it this that for with on my we i you can how what why not be are add fix make please from our all should when where does if so as at by or new use run test update remove create implement rename change build move write explain review check show list find delete refactor install deploy there here have has was').split(' '));
 const FOLLOW_UP = /^(yes|yep|yeah|yup|ok|okay|sure|go|go ahead|go on|continue|proceed|do it|do that|please do|please continue|sounds good|looks good|lgtm|ship it|keep going|carry on|next|try again|retry|thanks|thank you|y|k|fine|approved|that works|do so)( please| now)?$/;
 const QUESTION = /^\s*(?:(?:please|pls|hey|hi|so|ok|okay|also|and|then|(?:can|could|would) you(?: please)?)[\s,]+)*(what|why|how|where|when|which|who|does|did|is|are|explain|describe|show me|tell me|walk me through|list|do (you|we|i|they|these|those|the))\b/i;
@@ -216,15 +221,17 @@ export function analyze(prompt, cfg = DEFAULT_CONFIG) {
   });
   const tokens = tokenize(body);
   const reasons = [];
-  const score = new Map(C.roles.map((r) => [r.name, { kind: r.kind, kw: 0, lex: 0, path: 0, frame: 0, paste: 0, first: Infinity, neg: false, kws: [], terms: [], paths: [] }]));
+  const score = new Map(C.roles.map((r) => [r.name, { kind: r.kind, ro: r.ro, kw: 0, lex: 0, fail: 0, path: 0, frame: 0, paste: 0, first: Infinity, neg: false, kws: [], terms: [], paths: [], idx: [] }]));
+  const noun = (i) => tokens[i].s === 'chang' && /^(the|these|those|my|your|this|any|recent|our|all|some)$/.test(tokens[i - 1]?.w); // "the changes I made"
   // Mentioned file paths (strong signal), honouring negation ("don't touch src/ui/x.tsx").
   paths.forEach((p, i) => {
     const idx = tokens.findIndex((t) => t.w === `qpath${i}x`);
     const isNeg = idx >= 0 && negated(tokens, idx, 1);
     const owners = roleByPath(C, p);
     for (const s of owners.map((r) => score.get(r.name))) {
-      if (isNeg) s.neg = true;
-      else if (!s.paths.includes(p)) { s.paths.push(p); s.path = Math.min(6, s.path + 3 / owners.length); } // shared globs split the credit
+      if (isNeg) { s.neg = true; continue; } // a negated path is never an edit target
+      s.idx.push(idx);
+      if (!s.paths.includes(p)) { s.paths.push(p); s.path = Math.min(6, s.path + 3 / owners.length); } // shared globs split the credit
     }
   });
   // Stack frames in pasted text: the first project frame decides.
@@ -238,27 +245,36 @@ export function analyze(prompt, cfg = DEFAULT_CONFIG) {
     for (const [ph, key] of r.kw) {
       const hits = find(tokens, ph);
       const ok = hits.filter((i) => !negated(tokens, i, ph.length));
-      if (ok.length) { s.kw += (key.toLowerCase() === r.name ? 2 : 1) + Math.min(0.5, 0.25 * (ok.length - 1)); s.kws.push(key); s.first = Math.min(s.first, ok[0]); }
+      if (ok.length) { const w = (key.toLowerCase() === r.name ? 2 : 1) + Math.min(0.5, 0.25 * (ok.length - 1)); s.kw += w; if (ph.length === 1 && FAIL.has(ph[0])) s.fail += w; s.kws.push(key); s.first = Math.min(s.first, ok[0]); s.idx.push(...ok); }
       else if (hits.length) s.neg = true;
       else if (find(pastedTokens, ph).length) s.paste = Math.min(0.5, s.paste + 0.15);
     }
     for (const [ph, raw] of r.lex) {
       const ok = r.kw.some(([k]) => k.join(' ') === ph.join(' ')) ? [] : live(tokens, ph);
-      if (ok.length) { s.lex = Math.min(1.5, s.lex + 0.5); s.terms.push(raw); s.first = Math.min(s.first, ok[0]); }
+      if (ok.length) { const before = s.lex; s.lex = Math.min(1.5, s.lex + 0.5); if (ph.length === 1 && FAIL.has(ph[0])) s.fail += s.lex - before; s.terms.push(raw); s.first = Math.min(s.first, ok[0]); s.idx.push(...ok); }
     }
     s.kw = Math.min(4, s.kw);
+    s.fail = Math.min(s.fail, s.kw + s.lex);
     s.total = s.kw + s.lex + s.path + s.frame + s.paste;
     s.excluded = s.neg && s.kw < 2 && s.path === 0;
   }
+  // An edit verb whose object (up to 4 words, same clause) names a writer role's territory ("fix the CI workflow"):
+  // runner/reviewer roles then lose their failure-word points and the QA lead bonus, so the writer leads.
+  const aimed = new Set();
+  tokens.forEach((t, i) => {
+    if (EDIT.has(t.s) && !noun(i)) for (let j = i + 1; j < tokens.length && j <= i + 4 && tokens[j].c === t.c && tokens[j].n === t.n && !OBJ_STOP.has(tokens[j].s); j++) aimed.add(j);
+  });
+  const writerTarget = [...score.values()].some((s) => !s.ro && s.idx.some((j) => aimed.has(j)));
+  const demote = (s) => writerTarget && s.ro;
+  if (writerTarget) for (const [name, s] of score) if (s.ro && s.fail) { s.total -= s.fail; reasons.push(`${name}: failure words not counted (edit aimed at a writer role)`); }
   // Test words make QA primary only when the request leads with them ("add tests for X"), not for "fix X and add a test".
   const others = [...score.values()].filter((o) => o.kind !== 'qa' && !o.excluded && o.total >= 1);
   for (const q of score.values()) {
-    if (q.kind !== 'qa' || !q.total || q.path || q.frame || !others.length) continue;
-    q.total = q.first < Math.min(...others.map((o) => o.first)) ? q.total + 2 : q.total * 0.4;
+    if (q.kind !== 'qa' || !q.total || q.path || q.frame || !others.length || demote(q)) continue;
+    q.total = q.first < Math.min(...others.map((o) => o.first)) ? q.total + 2 : (q.total - q.fail) * 0.4 + q.fail; // failure words are not test words: no QA demotion for them
   }
 
   const has = (list) => list.some((p) => live(tokens, p).length);
-  const noun = (i) => tokens[i].s === 'chang' && /^(the|these|those|my|your|this|any|recent|our|all|some)$/.test(tokens[i - 1]?.w); // "the changes I made"
   const changeHits = CHANGE.flatMap((p) => live(tokens, p).filter((i) => !noun(i)).map((i) => tokens[i].n));
   const q = QUESTION.test(body.trim()) && !changeHits.some((n) => n >= 1);
   const change = !q && changeHits.length > 0;
@@ -418,12 +434,14 @@ async function readStdin(ms = 5000) {
 }
 
 const OPT_OUT = /(^|\s)\/noroute\b|\bno routing\b/i;
+const UNCONFIGURED = 'unconfigured: no .claude/router.json found';
 
 async function hook() {
   try {
     const prompt = JSON.parse(await readStdin()).prompt;
     if (typeof prompt !== 'string' || !prompt.trim() || OPT_OUT.test(prompt) || process.env.CLAUDE_SETUP_ROUTER === 'off') return;
     const { cfg, file } = loadConfig();
+    if (!file) return; // unconfigured project: stay silent
     const d = await route(prompt, cfg);
     process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: describe(d, cfg) } })}\n`);
     if (file && cfg.log) logDecision(path.dirname(file), prompt, d);
@@ -434,8 +452,9 @@ async function main(argv) {
   const mode = argv.find((a) => a === '--explain' || a === '--json');
   if (mode) {
     const text = argv.slice(argv.indexOf(mode) + 1).join(' ');
-    const { cfg } = loadConfig();
-    const d = await route(text, cfg);
+    const { cfg, file } = loadConfig();
+    const d = await route(text, cfg); // no config: built-in defaults decide, and say so
+    if (!file) d.reasons.unshift(UNCONFIGURED);
     console.log(mode === '--json' ? JSON.stringify(d, null, 2) : explain(d, cfg));
   } else if (!process.stdin.isTTY) {
     await hook();
