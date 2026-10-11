@@ -6,12 +6,15 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { parseAgent, parseFrontmatter, parseModelMap, tierOf, tomlMultiline, syncAgents } from '../scripts/sync-agents.mjs';
+import { parseAgent, parseFrontmatter, parseModelMap, permissionLine, rewriteBody, tierOf, tomlMultiline, syncAgents } from '../scripts/sync-agents.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, '..', 'scripts', 'sync-agents.mjs');
 const FIXTURE = path.join(HERE, 'fixtures', 'agents-sync');
 const ALL = 'codex,gemini,opencode,copilot';
+const P_RO = 'Permissions: read-only. Do not edit files or run commands.';
+const P_EDIT = 'Permissions: may edit files within the scope described below.';
+const P_BASH = 'Permissions: read-only. Run commands only to test or inspect, never to change files.';
 const MAP = 'fast=gpt-5-mini,standard=anthropic/claude-sonnet-4,deep=gpt-5';
 
 const tmpDirs = [];
@@ -130,10 +133,10 @@ test('codex output: marker, fields, literal and escaped bodies, no model without
   assert.deepEqual(parseToml(explorer), {
     name: 'explorer',
     description: 'Read-only codebase explorer. Use proactively for "where is X" questions.',
-    developer_instructions: 'You find code and report file:line. You never edit files.\n',
+    developer_instructions: `${P_RO}\n\nYou find code and report file:line. You never edit files.\n`,
   });
-  assert.ok(explorer.includes("developer_instructions = '''\nYou find"));
-  assert.equal(parseToml(read(dir, '.codex/agents/frontend.toml')).developer_instructions.startsWith('# Frontend\n'), true);
+  assert.ok(explorer.includes("developer_instructions = '''\nPermissions: read-only."));
+  assert.equal(parseToml(read(dir, '.codex/agents/frontend.toml')).developer_instructions.startsWith(`${P_EDIT}\n\n# Frontend\n`), true);
   const reviewer = parseToml(read(dir, '.codex/agents/reviewer.toml'));
   assert.ok(!('model' in reviewer));
   assert.ok(reviewer.developer_instructions.includes("'''triple''' quotes"));
@@ -146,7 +149,7 @@ test('gemini output: inherit model, mapped tools, no Agent tool, body unchanged'
   assert.equal(sync(dir, 'gemini').code, 0);
   assert.equal(
     read(dir, '.gemini/agents/explorer.md'),
-    `---\nname: explorer\ndescription: "Read-only codebase explorer. Use proactively for \\"where is X\\" questions."\nmodel: inherit\ntools:\n  - read_file\n  - grep_search\n  - glob\n---\n${md('explorer')}\n\nYou find code and report file:line. You never edit files.\n`,
+    `---\nname: explorer\ndescription: "Read-only codebase explorer. Use proactively for \\"where is X\\" questions."\nmodel: inherit\ntools:\n  - read_file\n  - grep_search\n  - glob\n---\n${md('explorer')}\n\n${P_RO}\n\nYou find code and report file:line. You never edit files.\n`,
   );
   const frontend = read(dir, '.gemini/agents/frontend.md');
   assert.match(frontend, /^tools:\n {2}- read_file\n {2}- replace\n {2}- write_file\n {2}- run_shell_command\n---$/m);
@@ -160,7 +163,7 @@ test('opencode output: subagent mode and permission from tools', () => {
   assert.equal(sync(dir, 'opencode').code, 0);
   const explorer = read(dir, '.opencode/agents/explorer.md');
   assert.match(explorer, /^---\ndescription: "Read-only[^\n]*"\nmode: subagent\npermission:\n {2}edit: deny\n {2}bash: deny\n---\n/);
-  assert.ok(explorer.includes(`${md('explorer')}\n\nYou find code`));
+  assert.ok(explorer.includes(`${md('explorer')}\n\n${P_RO}\n\nYou find code`));
   assert.ok(!explorer.includes('model:'));
   assert.match(read(dir, '.opencode/agents/reviewer.md'), /permission:\n {2}edit: deny\n {2}bash: ask\n---/);
   assert.ok(!read(dir, '.opencode/agents/frontend.md').includes('permission'));
@@ -171,7 +174,7 @@ test('copilot output: name, description, alias tools, no model without a map', (
   assert.equal(sync(dir, 'copilot').code, 0);
   assert.equal(
     read(dir, '.github/agents/explorer.agent.md'),
-    `---\nname: explorer\ndescription: "Read-only codebase explorer. Use proactively for \\"where is X\\" questions."\ntools: ["read", "search"]\n---\n${md('explorer')}\n\nYou find code and report file:line. You never edit files.\n`,
+    `---\nname: explorer\ndescription: "Read-only codebase explorer. Use proactively for \\"where is X\\" questions."\ntools: ["read", "search"]\n---\n${md('explorer')}\n\n${P_RO}\n\nYou find code and report file:line. You never edit files.\n`,
   );
   const frontend = read(dir, '.github/agents/frontend.agent.md');
   assert.match(frontend, /^tools: \["read", "edit", "execute"\]$/m);
@@ -288,4 +291,88 @@ test('runs through a symlinked script path', () => {
   const r = spawnSync(process.execPath, [link, '--dir', dir, '--targets', 'codex'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.ok(exists(dir, '.codex/agents/explorer.toml'));
+});
+
+test('permissionLine derives the line from tools, ignoring disallowed tools', () => {
+  const cases = [
+    [['Read', 'Grep', 'Glob'], [], P_RO],
+    [['Read', 'Grep', 'Glob', 'Bash'], [], P_BASH],
+    [['Read', 'Edit', 'Bash'], [], P_EDIT],
+    [['Write'], [], P_EDIT],
+    [['MultiEdit'], [], P_EDIT],
+    [['NotebookEdit', 'Read'], [], P_EDIT],
+    [[], [], P_RO],
+    [['Read', 'Edit', 'Bash'], ['Edit'], P_BASH],
+    [['Read', 'Edit', 'Write'], ['Edit', 'Write'], P_RO],
+    [['Read', 'Edit', 'Write', 'Bash'], ['Edit', 'Write', 'Bash'], P_RO],
+    [['Read', 'Bash'], ['Bash'], P_RO],
+  ];
+  for (const [tools, disallowed, want] of cases) assert.equal(permissionLine(tools, disallowed), want, `${tools} / ${disallowed}`);
+  assert.equal(permissionLine(null, []), null); // no tools field: no line
+  assert.equal(permissionLine(undefined), null);
+});
+
+test('every target starts the instructions with the permission line its tools imply', () => {
+  const dir = project();
+  assert.equal(sync(dir).code, 0);
+  const cases = [
+    ['.codex/agents/explorer.toml', P_RO],
+    ['.codex/agents/reviewer.toml', P_BASH],
+    ['.codex/agents/frontend.toml', P_EDIT],
+    ['.gemini/agents/explorer.md', P_RO],
+    ['.gemini/agents/reviewer.md', P_BASH],
+    ['.gemini/agents/frontend.md', P_EDIT],
+    ['.opencode/agents/explorer.md', P_RO],
+    ['.opencode/agents/reviewer.md', P_BASH],
+    ['.opencode/agents/frontend.md', P_EDIT],
+    ['.github/agents/explorer.agent.md', P_RO],
+    ['.github/agents/reviewer.agent.md', P_BASH],
+    ['.github/agents/frontend.agent.md', P_EDIT],
+  ];
+  for (const [file, line] of cases) {
+    const text = read(dir, file);
+    if (file.endsWith('.toml')) assert.equal(parseToml(text).developer_instructions.split('\n')[0], line, file);
+    else assert.ok(text.includes(`${md(path.basename(file).split('.')[0])}\n\n${line}\n\n`), file);
+  }
+});
+
+test('an agent without a tools field gets no permission line in any target', () => {
+  const dir = project();
+  fs.writeFileSync(path.join(dir, '.claude/agents/open.md'), '---\nname: open\ndescription: Inherits every tool.\n---\nDo the job.\n');
+  assert.equal(sync(dir).code, 0);
+  assert.equal(parseToml(read(dir, '.codex/agents/open.toml')).developer_instructions, 'Do the job.\n');
+  for (const f of ['.gemini/agents/open.md', '.opencode/agents/open.md', '.github/agents/open.agent.md']) {
+    assert.ok(!read(dir, f).includes('Permissions:'), f);
+    assert.ok(read(dir, f).endsWith(`${md('open')}\n\nDo the job.\n`), f);
+  }
+});
+
+test('rewriteBody: exact phrases only, whole-word match at the end', () => {
+  assert.equal(
+    rewriteBody('You have no Bash access. Use the Grep tool, the Glob tool, the Read tool and the Agent tool.\n'),
+    'Do not run shell commands access. Use search, file search, reading files and subagents.\n',
+  );
+  const untouched = 'the Read tools list. the Read toolbox. You have no Bashful plan. the grep tool. Bash runs. the Agent tooling.\n';
+  assert.equal(rewriteBody(untouched), untouched);
+});
+
+test('rewrite table applies to codex and every other generated target, not to the source', () => {
+  const dir = project();
+  const source = '---\nname: scribe\ndescription: Writes notes.\ntools: Read, Grep, Glob, Agent\n---\n'
+    + 'You have no Bash, so use the Grep tool, the Glob tool, the Read tool and the Agent tool.\n'
+    + 'The Read tools list and the Read toolbox are not touched.\n';
+  fs.writeFileSync(path.join(dir, '.claude/agents/scribe.md'), source);
+  const snapshot = (base) => fs.readdirSync(path.join(base, '.claude/agents')).sort().map((f) => [f, read(base, `.claude/agents/${f}`)]);
+  const before = snapshot(dir);
+  assert.equal(sync(dir).code, 0);
+  const rewritten = 'Do not run shell commands, so use search, file search, reading files and subagents.';
+  const kept = 'The Read tools list and the Read toolbox are not touched.';
+  for (const f of ['.codex/agents/scribe.toml', '.gemini/agents/scribe.md', '.opencode/agents/scribe.md', '.github/agents/scribe.agent.md']) {
+    const text = read(dir, f);
+    assert.ok(text.includes(rewritten), f);
+    assert.ok(text.includes(kept), f);
+    assert.ok(!/the (Grep|Glob|Read|Agent) tool\b|You have no Bash,/.test(text), f);
+  }
+  assert.deepEqual(snapshot(dir), before); // generated output never touches the source
+  assert.equal(read(dir, '.claude/agents/scribe.md'), source);
 });

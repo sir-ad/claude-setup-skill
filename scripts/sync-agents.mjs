@@ -157,9 +157,47 @@ export function parseAgent(raw, stem) {
 // ---------------------------------------------------------------------------
 
 const yamlStr = (s) => (/^[A-Za-z_][\w./-]*$/.test(s) && !/^(true|false|null|yes|no|on|off|y|n)$/i.test(s) ? s : JSON.stringify(s));
-const mdFile = (lines, a, rel) => `---\n${lines.join('\n')}\n---\n<!-- ${note(rel)} -->\n\n${a.body}`;
+const mdFile = (lines, a, rel) => `---\n${lines.join('\n')}\n---\n<!-- ${note(rel)} -->\n\n${instructionsOf(a)}`;
 
 const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
+
+// Exact phrases in Claude-written bodies that read wrong in other tools. Applied to the body of
+// generated files only; the source is never changed. Add pairs here. Matching needs a word
+// boundary after the phrase, so "the Read tool" does not match "the Read tools".
+const REWRITES = [
+  ['You have no Bash', 'Do not run shell commands'],
+  ['Use the Read tool to', 'Read files to'],
+  ['Use the Grep tool to', 'Search the code to'],
+  ['Use the Glob tool to', 'Find files to'],
+  ['the Grep tool', 'search'],
+  ['the Glob tool', 'file search'],
+  ['the Read tool', 'reading files'],
+  ['the Agent tool', 'subagents'],
+];
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export function rewriteBody(body) {
+  return REWRITES.reduce((text, [from, to]) => text.replace(new RegExp(`${escapeRe(from)}(?!\\w)`, 'g'), to), body);
+}
+
+// One plain line stating what the source's `tools` allow. Codex role files have no sandbox
+// field, so this line is the only place the read-only guarantee can live there. Tools listed in
+// disallowedTools do not count. No `tools` field (the agent inherits everything) gives no line.
+export function permissionLine(tools, disallowed = []) {
+  if (!tools) return null;
+  const granted = tools.filter((t) => !disallowed.includes(t));
+  if (granted.some((t) => EDIT_TOOLS.includes(t))) return 'Permissions: may edit files within the scope described below.';
+  if (granted.includes('Bash')) return 'Permissions: read-only. Run commands only to test or inspect, never to change files.';
+  return 'Permissions: read-only. Do not edit files or run commands.';
+}
+
+// Instructions text for generated targets: rewritten body, with the permission line first.
+function instructionsOf(a) {
+  const body = rewriteBody(a.body);
+  const perm = permissionLine(a.tools, a.disallowed);
+  if (!perm) return body;
+  return body.trim() ? `${perm}\n\n${body}` : `${perm}\n`;
+}
 
 // Claude tool name -> target tool name. Never maps Agent/Task (no nesting in other tools' lists).
 // Gemini names come from google-gemini/gemini-cli packages/core/src/tools/definitions/base-declarations.ts
@@ -206,7 +244,7 @@ function renderCodex(a, { rel, mapped, warn }) {
     lines.push(`model = ${tomlBasic(mapped)}`);
     if (CODEX_EFFORT.includes(a.effort)) lines.push(`model_reasoning_effort = ${tomlBasic(a.effort)}`);
   }
-  lines.push(`developer_instructions = ${tomlMultiline(a.body)}`);
+  lines.push(`developer_instructions = ${tomlMultiline(instructionsOf(a))}`);
   return lines.join('\n') + '\n';
 }
 
