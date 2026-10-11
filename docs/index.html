@@ -162,6 +162,27 @@
   .status { min-height: 1.4em; margin: 8px 0 0; color: var(--muted); font-size: 0.9rem; }
   .note { margin: 10px 0 0; color: var(--muted); font-size: 0.9rem; }
   .note[hidden], .status:empty { display: none; }
+  .field input[type="text"] {
+    width: 100%;
+    font: inherit;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+    min-height: 40px;
+  }
+  .route-line {
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 6px 0 0;
+    overflow-wrap: anywhere;
+  }
+  .sample { margin: 14px 0 0; }
+  .sample .meta { margin: 0 0 6px; }
 
   .meta { color: var(--muted); font-size: 0.9rem; margin: 0 0 10px; overflow-wrap: anywhere; }
   .tree, .tree ul {
@@ -260,12 +281,27 @@
         </fieldset>
 
         <fieldset class="group">
+          <legend>What the repo has</legend>
+          <p class="note">The stack sets these. Change any box to override. Each one adds a role agent file.</p>
+          <label class="check"><input type="checkbox" id="e-ui" role="switch"><span>UI framework <span class="hint">React, Vue, Svelte, Django templates or similar. Writes frontend.md (standard, sonnet).</span></span></label>
+          <label class="check"><input type="checkbox" id="e-server" role="switch"><span>Server framework <span class="hint">Express, Fastify, FastAPI, Gin, Spring, Rails or similar. Writes backend.md (standard, sonnet).</span></span></label>
+          <label class="check"><input type="checkbox" id="e-orm" role="switch"><span>ORM or migrations <span class="hint">Prisma, Drizzle, SQLAlchemy, EF Core or a migrations folder. Writes data.md (standard, sonnet).</span></span></label>
+          <label class="check"><input type="checkbox" id="e-infra" role="switch"><span>Docker, IaC or 5+ CI workflows <span class="hint">Writes infra.md (standard, sonnet).</span></span></label>
+          <label class="check"><input type="checkbox" id="e-docs" role="switch"><span>Docs site <span class="hint">MkDocs, Docusaurus, Hugo, DocFX or similar. Writes docs.md (fast, haiku).</span></span></label>
+          <label class="check"><input type="checkbox" id="e-mobile" role="switch"><span>Mobile app <span class="hint">React Native, Flutter, iOS or Android folders. Writes mobile.md (standard, sonnet).</span></span></label>
+          <label class="check"><input type="checkbox" id="e-auth" role="switch"><span>Auth or payments code <span class="hint">Login, sessions, tokens or a payment SDK. Writes security-reviewer.md (deep, opus), read only.</span></span></label>
+          <label class="check"><input type="checkbox" id="e-tests" role="switch" checked><span>Repo has tests <span class="hint">Writes test-writer.md (standard, sonnet).</span></span></label>
+          <p class="note" id="note-roles" hidden></p>
+        </fieldset>
+
+        <fieldset class="group">
           <legend>Agents</legend>
           <label class="check"><input type="checkbox" checked disabled><span>Claude Code <span class="hint">always on</span></span></label>
           <label class="check"><input type="checkbox" id="agent-codex"><span>Codex</span></label>
           <label class="check"><input type="checkbox" id="agent-cursor" checked><span>Cursor</span></label>
           <label class="check"><input type="checkbox" id="agent-copilot"><span>Copilot</span></label>
           <label class="check"><input type="checkbox" id="agent-gemini" checked><span>Gemini CLI</span></label>
+          <label class="check"><input type="checkbox" id="agent-opencode"><span>opencode</span></label>
           <label class="check"><input type="checkbox" id="agent-aider"><span>Aider</span></label>
           <label class="check"><input type="checkbox" id="agent-cline"><span>Cline</span></label>
           <label class="check"><input type="checkbox" id="agent-windsurf"><span>Windsurf</span></label>
@@ -276,7 +312,7 @@
         <fieldset class="group">
           <legend>Repo</legend>
           <label class="check"><input type="checkbox" id="t-conventions" role="switch" checked><span>Repo has folder-specific conventions <span class="hint">Writes the folder rule (api.md and so on) and its mirrors for the tools you pick.</span></span></label>
-          <label class="check"><input type="checkbox" id="t-release" role="switch" checked><span>Repo has a version file + changelog <span class="hint">Writes the release skill.</span></span></label>
+          <label class="check"><input type="checkbox" id="t-release" role="switch" checked><span>Repo has a version file + changelog <span class="hint">Writes the release skill and release.md (fast, haiku).</span></span></label>
           <label class="check"><input type="checkbox" id="t-adr" role="switch"><span>Repo already has ADRs <span class="hint">Skips docs/decisions/. Your ADR folder keeps its format.</span></span></label>
           <label class="check"><input type="checkbox" id="t-env" role="switch"><span>Repo has gitignored .env files <span class="hint">Writes .worktreeinclude.</span></span></label>
         </fieldset>
@@ -290,10 +326,26 @@
 
         <fieldset class="group">
           <legend>Flags</legend>
-          <label class="check"><input type="checkbox" id="f-minimal"><span>--minimal <span class="hint">Only AGENTS.md, CLAUDE.md and settings. Adapters for picked agents stay.</span></span></label>
+          <label class="check"><input type="checkbox" id="f-minimal"><span>--minimal <span class="hint">Only AGENTS.md, CLAUDE.md and settings. Drops the roster, router, orchestrate and agent mirrors. Adapters for picked agents stay.</span></span></label>
           <label class="check"><input type="checkbox" id="f-docs"><span>--skip-docs <span class="hint">Leaves out docs/.</span></span></label>
-          <label class="check"><input type="checkbox" id="f-pipeline"><span>--skip-pipeline <span class="hint">Leaves out the explorer, test-runner, reviewer, plan-task, handoff, the handoff hook, the working agreements and the Claude efficiency lines.</span></span></label>
+          <label class="check"><input type="checkbox" id="f-pipeline"><span>--skip-pipeline <span class="hint">Leaves out the explorer, test-runner, reviewer, role agents, plan-task, handoff, the handoff hook, the router, orchestrate, agent mirrors, the working agreements and the Claude efficiency lines.</span></span></label>
           <label class="check"><input type="checkbox" id="f-skip"><span>--skip-skills <span class="hint">Leaves out .claude/skills.</span></span></label>
+          <label class="check"><input type="checkbox" id="f-norouter"><span>--no-router <span class="hint">Leaves out the router hook, .claude/hooks/route.mjs, .claude/router.json and the route log entry. The roster stays.</span></span></label>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Flag inputs</legend>
+          <div class="field">
+            <label for="intent">--intent</label>
+            <input type="text" id="intent" name="intent" autocomplete="off" spellcheck="false" placeholder="add CSV export to reports">
+            <span class="hint">Goal text for the roster step. Added to the command as typed.</span>
+          </div>
+          <div class="field">
+            <label for="model-map">--model-map</label>
+            <input type="text" id="model-map" name="model-map" autocomplete="off" spellcheck="false" placeholder="fast=haiku,standard=sonnet,deep=opus">
+            <span class="hint">Model name for each tier in the other tools' agent files. Passed through to the command.</span>
+          </div>
+          <p class="note" id="note-inputs" hidden></p>
         </fieldset>
       </div>
     </section>
@@ -315,6 +367,10 @@
         <p class="meta" id="tpl"></p>
         <p class="meta">What the skill writes for these choices. A real run checks your repo first.</p>
         <ul class="tree" id="tree"></ul>
+        <div class="sample">
+          <p class="meta">Sample Route line on a prompt, using the first toggled role:</p>
+          <p class="route-line" id="route-line"></p>
+        </div>
         <p class="counter" id="counter"></p>
         <h3>Reads AGENTS.md directly</h3>
         <ul class="plain" id="reads"></ul>
@@ -344,13 +400,13 @@
   var DENY_BASE = ['Bash(rm -rf *)', 'Bash(git push --force *)', 'Bash(git push -f *)', 'Bash(git reset --hard *)'];
   var ENV_DENY = ['Read(./.env)', 'Read(./.env.*)', 'Read(./**/*.pem)', 'Read(./secrets/**)'];
   var GIT_ALLOW = ['Bash(git add *)', 'Bash(git commit *)'];
-  var AGENT_ORDER = ['codex', 'cursor', 'copilot', 'gemini', 'aider', 'cline', 'windsurf', 'zed', 'junie'];
-  var AGENT_NAME = { codex: 'Codex', cursor: 'Cursor', copilot: 'Copilot', gemini: 'Gemini CLI', aider: 'Aider', cline: 'Cline', windsurf: 'Windsurf', zed: 'Zed', junie: 'Junie' };
-  var FLAG_AGENTS = ['codex', 'cursor', 'copilot', 'gemini', 'aider', 'cline', 'windsurf'];
+  var AGENT_ORDER = ['codex', 'cursor', 'copilot', 'gemini', 'opencode', 'aider', 'cline', 'windsurf', 'zed', 'junie'];
+  var AGENT_NAME = { codex: 'Codex', cursor: 'Cursor', copilot: 'Copilot', gemini: 'Gemini CLI', opencode: 'opencode', aider: 'Aider', cline: 'Cline', windsurf: 'Windsurf', zed: 'Zed', junie: 'Junie' };
+  var FLAG_AGENTS = ['codex', 'cursor', 'copilot', 'gemini', 'opencode', 'aider', 'cline', 'windsurf'];
   var MIRROR_AGENTS = ['cursor', 'copilot', 'cline', 'windsurf'];
-  var READS_ONLY = ['codex', 'zed', 'junie'];
+  var READS_ONLY = ['codex', 'opencode', 'zed', 'junie'];
   var DEFAULT_AGENTS = ['cursor', 'gemini'];
-  var DEFAULT_FLAGS = { conventions: true, release: true, adr: false, env: false, hookOn: false, mcpOn: false, minimal: false, skipDocs: false, skipPipeline: false, skipSkills: false };
+  var DEFAULT_FLAGS = { conventions: true, release: true, adr: false, env: false, hookOn: false, mcpOn: false, minimal: false, skipDocs: false, skipPipeline: false, skipSkills: false, noRouter: false, intent: '', modelMap: '' };
   var HOOK = {
     SessionStart: [
       {
@@ -358,6 +414,177 @@
         hooks: [{ type: 'command', command: 'cat "${CLAUDE_PROJECT_DIR:-.}/.claude/handoff.md" 2>/dev/null || true' }]
       }
     ]
+  };
+
+  var ROUTER_HOOK = [{ hooks: [{ type: 'command', command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/route.mjs"', timeout: 5 }] }];
+  var ROUTE_JS = [
+    '#!/usr/bin/env node',
+    '// Prompt router for Claude Code (UserPromptSubmit hook), part of the /claude-setup skill.',
+    '//   hook mode (stdin is not a TTY):  {"prompt": "..."} on stdin -> hookSpecificOutput JSON on stdout',
+    '//   node route.mjs --explain "text"  human-readable decision with matched rules and scores',
+    '//   node route.mjs --json "text"     decision JSON',
+    '// Self-contained and dependency-free (Node >= 18): the skill copies this file to',
+    '// .claude/hooks/route.mjs and writes .claude/router.json next to it. The router is advice,',
+    '// never authority: it always exits 0, prints nothing on bad input, and never logs prompt text.',
+    '// Env: CLAUDE_SETUP_ROUTER=off|ollama|decider, CLAUDE_SETUP_ROUTER_MODEL, CLAUDE_SETUP_ROUTER_URL (ollama chat',
+    '// endpoint), CLAUDE_SETUP_ROUTER_TIMEOUT_MS (max 1500), CLAUDE_SETUP_DECIDER_URL.',
+    '',
+    "import fs from 'node:fs';",
+    '// The rest of the file is a byte-for-byte copy of scripts/router/route.mjs.'
+  ].join('\n');
+  var TIER_MODEL = { fast: 'haiku', standard: 'sonnet', deep: 'opus' };
+  var MODEL_TIER = { haiku: 'fast', sonnet: 'standard', opus: 'deep' };
+  var TIER_EFFORT = { fast: 'low', standard: 'medium', deep: 'high' };
+  var ROLE_CAP = 8;
+  var RW = 'Read, Grep, Glob, Edit, Write, Bash';
+  var RO = 'Read, Grep, Glob';
+  // Evidence toggles. Release uses the existing t-release toggle.
+  var EVID = [
+    { key: 'ui', id: 'e-ui' }, { key: 'server', id: 'e-server' }, { key: 'orm', id: 'e-orm' },
+    { key: 'infra', id: 'e-infra' }, { key: 'docs', id: 'e-docs' }, { key: 'mobile', id: 'e-mobile' },
+    { key: 'auth', id: 'e-auth' }, { key: 'tests', id: 'e-tests' }
+  ];
+  var EVID_KEYS = ['ui', 'server', 'orm', 'infra', 'docs', 'mobile', 'auth'];
+  // Stack defaults for the evidence toggles. Tests are on for every stack.
+  var PRESET = {
+    node: { ui: true },
+    python: { server: true }, go: { server: true }, rust: { server: true }, jvm: { server: true },
+    ruby: { server: true }, dotnet: { server: true }, php: { server: true },
+    other: {}
+  };
+  var ROLE_ORDER = ['frontend', 'backend', 'data', 'infra', 'docs', 'mobile', 'security-reviewer', 'test-writer', 'release'];
+  // cat: the evidence toggle that adds the role. kw: router keywords. The tier sets the model.
+  var ROLE_DEFS = {
+    frontend: {
+      cat: 'ui', tier: 'standard', tools: RW, use: 'components, pages and styling', not: 'API handlers or data access',
+      kw: ['ui', 'component', 'page', 'css', 'style', 'button', 'form', 'layout', 'render'],
+      checks: function (f) { return [f.check, 'Components take typed props. Prop types sit next to the component (' + f.ev + ').', 'Interactive elements have a label and a visible focus style.']; }
+    },
+    backend: {
+      cat: 'server', tier: 'standard', tools: RW, use: 'routes, handlers and request validation', not: 'UI code or schema changes',
+      kw: ['api', 'endpoint', 'route', 'handler', 'middleware', 'server', 'request', 'response'],
+      checks: function (f) { return [f.check, 'Errors from the service layer map to HTTP status codes in one place (' + f.start + ').', 'Logs go through the project logger. No tokens or passwords in log lines.']; }
+    },
+    data: {
+      cat: 'orm', tier: 'standard', tools: RW, use: 'schema, queries and migrations', not: 'route handlers or UI code',
+      kw: ['database', 'schema', 'sql', 'query', 'table', 'column', 'index', 'orm', 'migration'],
+      checks: function (f) { return [f.check, 'Schema changes ship with a migration in the same change (' + f.ev + ').', 'Reads and writes go through the data layer. No SQL built from input.']; }
+    },
+    infra: {
+      cat: 'infra', tier: 'standard', tools: RW, use: 'Dockerfiles, CI workflows and build settings', not: 'application code',
+      kw: ['docker', 'dockerfile', 'ci', 'pipeline', 'workflow', 'container', 'deploy', 'build'],
+      checks: function (f, c) { return ['Base images and actions are pinned to a tag or digest, never latest.', 'Secrets come from the CI secret store. No values in workflow files or the Dockerfile.', 'CI runs `' + testCmd(c) + '` on push (.github/workflows/ci.yml).']; }
+    },
+    docs: {
+      cat: 'docs', tier: 'fast', tools: RW, use: 'docs pages, guides and the docs site config', not: 'source code changes',
+      kw: ['docs', 'readme', 'documentation', 'guide', 'tutorial'],
+      checks: function (f) { return [f.check, 'Each link in a changed page resolves to a file in the repo.', 'Generated output is never edited by hand.']; }
+    },
+    mobile: {
+      cat: 'mobile', tier: 'standard', tools: RW, use: 'screens, navigation and mobile build settings', not: 'backend routes or web-only code',
+      kw: ['mobile', 'screen', 'navigation', 'ios', 'android', 'native', 'app'],
+      checks: function (f) { return [f.check, 'Platform-specific code stays in its platform folder.', 'Navigation changes update the route list in ' + f.start + '.']; }
+    },
+    'security-reviewer': {
+      cat: 'auth', tier: 'deep', tools: RO, readOnly: true, use: 'auth, sessions, payments and secret handling', not: 'style or layout',
+      kw: ['auth', 'login', 'session', 'token', 'password', 'permission', 'payment', 'secret', 'security'],
+      cmd: function () { return null; },
+      desc: function (f, scope) { return 'Reviews ' + scope.join(', ') + ' (' + f.name + ') for auth bypass, injection and secret leaks. Use after changes there. Not for style or layout.'; },
+      checks: function (f) { return ['Auth checks run before any write, on every route (' + f.start + ').', 'Secrets, tokens and keys come from the environment, never from source.', 'User input reaches SQL, shell or HTML only through the helpers the repo already uses.']; }
+    },
+    'test-writer': {
+      cat: 'tests', tier: 'standard', tools: RW, use: 'new tests and fixtures', not: 'production code changes',
+      kw: ['test', 'spec', 'coverage', 'fixture', 'mock', 'regression'],
+      scope: function (f, c) { return c.tests.paths; },
+      cmd: function (f, c) { return testCmd(c); },
+      desc: function (f, scope) { return 'Edits ' + scope.join(', ') + '. Use for new tests and fixtures. Not for production code changes.'; },
+      checks: function (f, c) { var b = c.tests.bullets; return [b[0], b[1], b[b.length - 1]]; }
+    },
+    release: {
+      cat: 'release', tier: 'fast', tools: 'Read, Grep, Glob, Edit, Bash', use: 'version bumps and changelog entries', not: 'tagging, pushing or publishing',
+      kw: ['release', 'version', 'changelog', 'tag', 'bump'],
+      scope: function (f, c) { return c.release.versionFile ? [c.release.versionFile, 'CHANGELOG.md'] : ['CHANGELOG.md']; },
+      cmd: function (f, c) { return c.release.test; },
+      desc: function (f, scope) { return 'Prepares a release in ' + scope.join(', ') + '. Use only when the user asks. Never tags, pushes or publishes.'; },
+      checks: function (f, c) { return ['Run `' + c.release.test + '` before the version change.', c.release.versionFile ? 'The version lives in ' + c.release.versionFile + '. Changelog entries follow CHANGELOG.md.' : 'The tag is the version. Changelog entries follow CHANGELOG.md.', 'Never tag, push or publish. Stop after the commit and say so.']; }
+    }
+  };
+  var MIRROR_TOOLS = {
+    codex: { dir: '.codex/agents/', ext: '.toml' },
+    gemini: { dir: '.gemini/agents/', ext: '.md' },
+    opencode: { dir: '.opencode/agents/', ext: '.md' },
+    copilot: { dir: '.github/agents/', ext: '.agent.md' }
+  };
+  // Fallback facts per evidence kind. Stack facts below replace these fields.
+  var GENERIC = {
+    ui: { name: 'web front end', ev: 'web/ folder with templates', scope: ['web/**'], check: 'Inline scripts and styles follow the repo convention.' },
+    server: { name: 'service code', ev: 'src/ folder with a server entry', scope: ['src/**'], check: 'Input is validated before it is used.' },
+    orm: { name: 'data layer', ev: 'db/ folder', scope: ['db/**'], check: 'Applied migrations are never edited.' },
+    infra: { name: 'Dockerfile and GitHub Actions', ev: 'Dockerfile and 5+ CI workflows', scope: ['Dockerfile', '.github/workflows/**'], start: '.github/workflows/ci.yml', cmd: 'actionlint .github/workflows/*.yml' },
+    docs: { name: 'docs site', ev: 'docs/ folder', scope: ['docs/**'], check: 'Pages live under docs/.' },
+    mobile: { name: 'mobile app', ev: 'mobile/ folder', scope: ['mobile/**'], check: 'Platform code stays in its platform folder.' },
+    auth: { name: 'auth and payment code', ev: 'auth or payment files', scope: ['src/auth/**'], check: 'Authorization is checked on every write. Deny by default.' },
+    tests: {},
+    release: {}
+  };
+  var FACTS = {
+    node: {
+      ui: { name: 'React with Next.js', ev: 'next@15 and react@19 in package.json', scope: ['src/components/**', 'src/app/**'], start: 'src/app/layout.tsx', cmd: 'pnpm vitest run src/components', check: 'Server data is read in server components. Client components do not import server-only modules.' },
+      server: { name: 'Fastify', ev: 'fastify@5 in package.json, 14 files import it', scope: ['src/api/**', 'src/server/**'], start: 'src/api/handlers.ts', cmd: 'pnpm vitest run src/api', check: 'Each route validates its body with the schema library before it calls a service (src/api/handlers.ts).' },
+      orm: { name: 'Drizzle ORM', ev: 'drizzle-orm in package.json, drizzle/ migrations', scope: ['src/db/**', 'drizzle/**'], start: 'src/db/client.ts', cmd: 'pnpm vitest run src/db', check: 'Migrations under drizzle/ are append-only. Applied files are never edited.' },
+      docs: { name: 'Docusaurus', ev: '@docusaurus/core in package.json', scope: ['docs/**', 'docusaurus.config.ts'], start: 'docusaurus.config.ts', cmd: 'pnpm docusaurus build', check: 'Sidebar entries in sidebars.ts point at files that exist.' },
+      mobile: { name: 'React Native with Expo', ev: 'expo in package.json, app/ routes', scope: ['app/**', 'src/screens/**'], start: 'app/_layout.tsx', cmd: 'pnpm vitest run src/screens', check: 'Screens are registered in app/_layout.tsx, one route per file.' },
+      auth: { name: 'session auth and Stripe', ev: 'jose and stripe in package.json, src/lib/billing.ts', scope: ['src/lib/auth/**', 'src/lib/billing.ts', 'src/api/guards.ts'], start: 'src/api/guards.ts', cmd: 'pnpm vitest run src/lib/auth', check: 'Authorization is checked in src/api/guards.ts on every route. Deny by default.' }
+    },
+    python: {
+      ui: { name: 'Django templates with htmx', ev: 'django and htmx in pyproject.toml, templates/ folder', scope: ['templates/**', 'static/**'], start: 'templates/base.html', cmd: 'uv run pytest tests/test_views.py', check: 'Templates escape user input. No |safe filter on request data.' },
+      server: { name: 'FastAPI', ev: 'fastapi in pyproject.toml, 12 files import it', scope: ['src/acme/api/**'], start: 'src/acme/api/routes.py', cmd: 'uv run pytest tests/api', check: 'Request bodies use the pydantic models in src/acme/schemas.py.' },
+      orm: { name: 'SQLAlchemy and Alembic', ev: 'sqlalchemy and alembic in pyproject.toml, migrations/ folder', scope: ['src/acme/adapters/**', 'migrations/**'], start: 'src/acme/adapters/db.py', cmd: 'uv run pytest tests/adapters', check: 'Applied migrations are never edited (docs/db.md:12).' },
+      docs: { name: 'MkDocs', ev: 'mkdocs.yml in the repo root', scope: ['docs/**', 'mkdocs.yml'], start: 'mkdocs.yml', cmd: 'uv run mkdocs build --strict', check: 'Nav entries in mkdocs.yml point at files that exist.' },
+      auth: { name: 'JWT auth and Stripe', ev: 'pyjwt and stripe in pyproject.toml, src/acme/auth.py', scope: ['src/acme/auth.py', 'src/acme/billing/**'], start: 'src/acme/auth.py', cmd: 'uv run pytest tests/auth', check: 'Authorization is checked in src/acme/auth.py on every route. Deny by default.' }
+    },
+    go: {
+      ui: { name: 'html/template', ev: '9 files in web/templates use html/template', scope: ['web/templates/**', 'web/static/**'], start: 'web/templates/layout.html', cmd: 'go test ./web/...', check: 'Output goes through html/template, not text/template.' },
+      server: { name: 'chi router', ev: 'go-chi/chi/v5 in go.mod, 11 files import it', scope: ['internal/server/**'], start: 'internal/server/server.go', cmd: 'go test ./internal/server/...', check: 'Handlers reach storage through the store interface, not the pg package (docs/adr/0002.md:8).' },
+      orm: { name: 'sqlc and goose', ev: 'sqlc.yaml and migrations/ folder', scope: ['internal/store/**', 'migrations/**'], start: 'internal/store/store.go', cmd: 'go test ./internal/store/...', check: 'Generated sqlc code under internal/store/db/ is never edited.' },
+      docs: { name: 'Hugo', ev: 'hugo.toml and content/ folder', scope: ['content/**', 'hugo.toml'], start: 'hugo.toml', cmd: 'hugo --gc --minify', check: 'Each page is one file under content/.' },
+      auth: { name: 'JWT auth', ev: 'golang-jwt in go.mod, internal/server/auth.go', scope: ['internal/server/auth.go', 'internal/billing/**'], start: 'internal/server/auth.go', cmd: 'go test ./internal/server/...', check: 'Authorization is checked in internal/server/auth.go on every route. Deny by default.' }
+    },
+    rust: {
+      ui: { name: 'Leptos', ev: 'leptos in Cargo.toml, src/ui/ folder', scope: ['src/ui/**', 'src/components/**'], start: 'src/ui/mod.rs', cmd: 'cargo test ui', check: 'View code does not call std::fs or block the render path.' },
+      server: { name: 'Axum', ev: 'axum in Cargo.toml, 8 files use it', scope: ['src/api/**'], start: 'src/api/mod.rs', cmd: 'cargo test api', check: 'Handlers return typed errors. No unwrap() in request handlers (src/api).' },
+      orm: { name: 'sqlx', ev: 'sqlx in Cargo.toml, migrations/ folder', scope: ['src/db/**', 'migrations/**'], start: 'src/db/mod.rs', cmd: 'cargo test db', check: 'Queries use sqlx bind parameters, never format! into SQL.' },
+      docs: { name: 'mdBook', ev: 'book.toml in the repo root', scope: ['docs/**', 'book.toml'], start: 'book.toml', cmd: 'mdbook build', check: 'Every page is listed in docs/SUMMARY.md.' },
+      auth: { name: 'token auth', ev: 'jsonwebtoken in Cargo.toml, src/auth.rs', scope: ['src/auth.rs', 'src/billing/**'], start: 'src/auth.rs', cmd: 'cargo test auth', check: 'Tokens are checked in src/auth.rs on every request. Deny by default.' }
+    },
+    jvm: {
+      ui: { name: 'Thymeleaf', ev: 'spring-boot-starter-thymeleaf in pom.xml', scope: ['src/main/resources/templates/**'], start: 'src/main/resources/templates/layout.html', cmd: './mvnw test -Dtest=PageControllerTest', check: 'Templates escape output. No th:utext on request data.' },
+      server: { name: 'Spring Boot', ev: 'spring-boot-starter-web in pom.xml, 14 controllers', scope: ['src/main/java/**/controller/**'], start: 'src/main/java/com/acme/orders/controller/OrderController.java', cmd: './mvnw test -Dtest=OrderControllerTest', check: 'Controllers return DTOs, not entities (docs/architecture.md:20).' },
+      orm: { name: 'Spring Data JPA and Flyway', ev: 'spring-boot-starter-data-jpa and flyway-core in pom.xml', scope: ['src/main/java/**/repository/**', 'src/main/resources/db/migration/**'], start: 'src/main/java/com/acme/orders/repository/OrderRepository.java', cmd: './mvnw test -Dtest=OrderRepositoryTest', check: 'Applied Flyway migrations (V*.sql) are never edited.' },
+      docs: { name: 'Antora', ev: 'antora-playbook.yml in the repo root', scope: ['docs/**', 'antora-playbook.yml'], start: 'antora-playbook.yml', cmd: './mvnw verify', check: 'Pages live under docs/modules/ROOT/pages/.' },
+      auth: { name: 'Spring Security and Stripe', ev: 'spring-boot-starter-security and stripe-java in pom.xml', scope: ['src/main/java/**/security/**', 'src/main/java/**/billing/**'], start: 'src/main/java/com/acme/orders/security/SecurityConfig.java', cmd: './mvnw test -Dtest=SecurityConfigTest', check: 'Every write endpoint has @PreAuthorize (SecurityConfig.java).' }
+    },
+    ruby: {
+      ui: { name: 'Hotwire (Turbo and Stimulus)', ev: 'turbo-rails and stimulus-rails in Gemfile, app/views folder', scope: ['app/views/**', 'app/javascript/**'], start: 'app/views/layouts/application.html.erb', cmd: 'bundle exec rspec spec/views', check: 'Views escape output. No html_safe on user input (app/views).' },
+      server: { name: 'Rails controllers', ev: 'rails in Gemfile, 12 controllers in app/controllers', scope: ['app/controllers/**', 'config/routes.rb'], start: 'app/controllers/orders_controller.rb', cmd: 'bundle exec rspec spec/requests', check: 'Strong parameters on every action that writes (app/controllers).' },
+      orm: { name: 'ActiveRecord migrations', ev: '40 files in db/migrate', scope: ['app/models/**', 'db/migrate/**'], start: 'app/models/order.rb', cmd: 'bundle exec rspec spec/models', check: 'Applied migrations are never edited. Add a new one (db/migrate).' },
+      docs: { name: 'YARD', ev: '.yardopts in the repo root', scope: ['docs/**', '.yardopts'], start: '.yardopts', cmd: 'bundle exec yard doc', check: 'Public methods carry YARD tags the generator reads.' },
+      auth: { name: 'Devise and Pundit', ev: 'devise and pundit in Gemfile', scope: ['app/policies/**', 'app/models/user.rb', 'app/controllers/concerns/**'], start: 'app/policies/application_policy.rb', cmd: 'bundle exec rspec spec/policies', check: 'Every action that writes checks a Pundit policy (app/policies).' }
+    },
+    dotnet: {
+      ui: { name: 'Razor Pages', ev: '9 .cshtml files under src/', scope: ['src/**/Pages/**', 'src/**/wwwroot/**'], start: 'src/Orders.Web/Program.cs', cmd: 'dotnet test --filter FullyQualifiedName~Pages', check: 'Razor output is encoded. No @Html.Raw on request data.' },
+      server: { name: 'ASP.NET Core minimal API', ev: 'Microsoft.AspNetCore in the .csproj, 18 endpoints', scope: ['src/Orders.Api/**'], start: 'src/Orders.Api/Program.cs', cmd: 'dotnet test --filter FullyQualifiedName~Orders.Api', check: 'Endpoints never return entities (docs/api.md:9).' },
+      orm: { name: 'EF Core migrations', ev: 'Microsoft.EntityFrameworkCore in the .csproj, Migrations/ folder', scope: ['src/Orders.Data/**'], start: 'src/Orders.Data/OrdersDbContext.cs', cmd: 'dotnet test --filter FullyQualifiedName~Orders.Data', check: 'Applied migrations are never edited. Add a new migration.' },
+      docs: { name: 'DocFX', ev: 'docfx.json in the repo root', scope: ['docs/**', 'docfx.json'], start: 'docfx.json', cmd: 'docfx docfx.json', check: 'API pages are generated from XML doc comments.' },
+      auth: { name: 'ASP.NET Identity and Stripe', ev: 'Microsoft.AspNetCore.Identity and Stripe.net in the .csproj', scope: ['src/Orders.Api/Auth/**', 'src/Orders.Application/Billing/**'], start: 'src/Orders.Api/Program.cs', cmd: 'dotnet test --filter FullyQualifiedName~Auth', check: 'Endpoints call RequireAuthorization (src/Orders.Api/Program.cs:31).' }
+    },
+    php: {
+      ui: { name: 'Blade and Livewire', ev: 'livewire/livewire in composer.json, resources/views folder', scope: ['resources/views/**', 'app/Livewire/**'], start: 'resources/views/layouts/app.blade.php', cmd: 'vendor/bin/pest tests/Feature/Views', check: 'Blade escapes output with {{ }}. No {!! !!} on request data.' },
+      server: { name: 'Laravel controllers', ev: 'laravel/framework in composer.json, routes/web.php', scope: ['app/Http/Controllers/**', 'routes/**'], start: 'app/Http/Controllers/InvoiceController.php', cmd: 'vendor/bin/pest tests/Feature', check: 'Each action validates input with a form request (app/Http/Requests).' },
+      orm: { name: 'Eloquent and migrations', ev: '24 files in database/migrations', scope: ['app/Models/**', 'database/migrations/**'], start: 'app/Models/Invoice.php', cmd: 'vendor/bin/pest tests/Unit', check: 'Applied migrations are never edited. Add a new one.' },
+      docs: { name: 'phpDocumentor', ev: 'phpdoc.dist.xml in the repo root', scope: ['docs/**', 'phpdoc.dist.xml'], start: 'phpdoc.dist.xml', cmd: 'vendor/bin/phpdoc', check: 'Public methods carry docblocks the generator reads.' },
+      auth: { name: 'Sanctum and Cashier', ev: 'laravel/sanctum and laravel/cashier in composer.json', scope: ['app/Policies/**', 'app/Http/Middleware/**', 'config/sanctum.php'], start: 'app/Policies/InvoicePolicy.php', cmd: 'vendor/bin/pest tests/Feature/Auth', check: 'Each action that writes has a policy check (app/Policies).' }
+    }
   };
 
   var NODE_STYLE = [
@@ -1003,11 +1230,25 @@
     s.skillsOn = s.pipe && !s.skipSkills;
     s.hook = s.hookOn && s.skillsOn;
     s.mcp = s.mcpOn && !s.minimal;
+    var want = ROLE_ORDER.filter(function (k) {
+      var cat = ROLE_DEFS[k].cat;
+      return cat === 'release' ? s.release : !!s.ev[cat];
+    });
+    s.roleCount = want.length;
+    s.roles = s.pipe ? want.slice(0, ROLE_CAP) : [];
+    s.dropped = s.pipe ? want.slice(ROLE_CAP) : [];
+    s.router = s.pipe && !s.noRouter;
+    s.orch = s.skillsOn && s.roles.length > 0;
+    s.rosterDoc = s.docs && s.roles.length > 0;
+    s.map = parseModelMap(s.modelMap);
+    s.mapBad = !!s.modelMap && !s.map;
     return s;
   }
 
   function readState() {
     var checked = document.querySelector('input[name="layout"]:checked');
+    var ev = {};
+    EVID.forEach(function (e) { ev[e.key] = $(e.id).checked; });
     return derive({
       stack: $('stack').value,
       layout: checked ? checked.value : 'single',
@@ -1016,17 +1257,32 @@
       release: $('t-release').checked,
       adr: $('t-adr').checked,
       env: $('t-env').checked,
+      ev: ev,
       hookOn: $('o-hook').checked,
       mcpOn: $('o-mcp').checked,
       minimal: $('f-minimal').checked,
       skipDocs: $('f-docs').checked,
       skipPipeline: $('f-pipeline').checked,
-      skipSkills: $('f-skip').checked
+      skipSkills: $('f-skip').checked,
+      noRouter: $('f-norouter').checked,
+      intent: $('intent').value.trim(),
+      modelMap: $('model-map').value.trim()
     });
   }
 
+  function presetEv(stack) {
+    var p = PRESET[stack] || {}, ev = { tests: true };
+    EVID_KEYS.forEach(function (k) { ev[k] = !!p[k]; });
+    return ev;
+  }
+
+  function applyPreset(stack) {
+    var ev = presetEv(stack);
+    EVID.forEach(function (e) { $(e.id).checked = !!ev[e.key]; });
+  }
+
   function defaultState(stack) {
-    var s = { stack: stack, layout: 'single', agents: DEFAULT_AGENTS.slice() };
+    var s = { stack: stack, layout: 'single', agents: DEFAULT_AGENTS.slice(), ev: presetEv(stack) };
     Object.keys(DEFAULT_FLAGS).forEach(function (k) { s[k] = DEFAULT_FLAGS[k]; });
     return derive(s);
   }
@@ -1036,22 +1292,249 @@
   function gitignoreLines(s) {
     var l = ['CLAUDE.local.md', '.claude/settings.local.json', '.claude/worktrees/'];
     if (s.skillsOn) l.push('.claude/handoff.md');
+    if (s.router) l.push('.claude/route-log.jsonl');
     return l;
+  }
+
+  function shellQuote(v) { return '"' + v.replace(/(["\\$`])/g, '\\$1') + '"'; }
+  function argValue(v) { return /^[\w.,=:\/-]+$/.test(v) ? v : shellQuote(v); }
+
+  // Returns { fast, standard, deep } with the names that were given, or null when empty or malformed.
+  function parseModelMap(text) {
+    if (!text) return null;
+    var map = {}, ok = true;
+    text.split(',').forEach(function (part) {
+      var m = /^\s*(fast|standard|deep)\s*=\s*([^=\s,]+)\s*$/.exec(part);
+      if (m) map[m[1]] = m[2]; else ok = false;
+    });
+    return ok ? map : null;
+  }
+
+  function otherModel(tier, s) {
+    return s.map && s.map[tier] ? bt(s.map[tier]) : 'inherit the session model';
+  }
+
+  // Facts for one evidence kind: the generic fallback, overridden by the stack's own values.
+  function factsFor(stack, cat, c) {
+    var g = GENERIC[cat] || {}, o = (FACTS[stack] || {})[cat] || {}, f = {};
+    Object.keys(g).forEach(function (k) { f[k] = g[k]; });
+    Object.keys(o).forEach(function (k) { f[k] = o[k]; });
+    if (!f.start) f.start = c.ex.file;
+    if (!f.cmd) f.cmd = testCmd(c) || 'make test';
+    return f;
+  }
+
+  function evidence(k, s, c) {
+    var cat = ROLE_DEFS[k].cat;
+    if (cat === 'tests') return 'test files match ' + c.tests.paths[0];
+    if (cat === 'release') return c.release.versionFile ? c.release.versionFile + ' and CHANGELOG.md' : 'CHANGELOG.md and version tags';
+    return factsFor(s.stack, cat, c).ev;
+  }
+
+  function roleWhy(k, s, c) {
+    var d = ROLE_DEFS[k];
+    return 'Tier ' + d.tier + ' (' + TIER_MODEL[d.tier] + ')' + (d.readOnly ? ', read only' : '') + '. Evidence: ' + evidence(k, s, c) + '.';
+  }
+
+  function roleMeta(k, s, c) {
+    var d = ROLE_DEFS[k], f = factsFor(s.stack, d.cat, c);
+    var scope = d.scope ? d.scope(f, c) : f.scope;
+    return {
+      d: d,
+      f: f,
+      scope: scope,
+      cmd: d.cmd ? d.cmd(f, c) : f.cmd,
+      model: TIER_MODEL[d.tier],
+      desc: d.desc ? d.desc(f, scope) : 'Edits ' + scope.join(', ') + ' (' + f.name + '). Use for ' + d.use + '. Not for ' + d.not + '.',
+      checks: d.checks(f, c)
+    };
+  }
+
+  function genList(c) { return c.gen.length ? genOf(c).join(', ') : 'generated files'; }
+
+  // Body of a role agent, following blueprints/agents/role.md.
+  function roleText(k, s, c) {
+    var m = roleMeta(k, s, c), d = m.d;
+    var out = ['---', 'name: ' + k, 'description: ' + m.desc, 'tools: ' + d.tools, 'model: ' + m.model, 'maxTurns: 30', '---',
+      'You are the ' + k + ' worker for this repository. The caller gives you the goal, the paths and the output format. If one is missing, ask for it in your reply.', '',
+      '## Scope', '- Paths: ' + m.scope.join(', '), '- Start with: ' + m.f.start, ''];
+    if (d.readOnly) {
+      out.push('## Review rules', '- You never edit files. You have no Edit, Write or shell tools.');
+    } else {
+      out.push('## Edit rules', '- You may edit: ' + m.scope.join(', '),
+        '- You must not edit anything else, including ' + genList(c) + ', lockfiles and `.env*`. If the task needs another file, stop and name it.');
+    }
+    out.push('', '## Checks');
+    m.checks.forEach(function (x, i) { out.push((i + 1) + '. ' + x); });
+    if (m.cmd) out.push('', '## Commands', '- ' + m.cmd, 'Do not install, deploy, publish, migrate a real database or start a dev server.');
+    if (d.readOnly) {
+      out.push('', '## Report back', '- Findings as `path:line - problem - fix`, most serious first', '- Open risks and anything you did not check', 'Do not paste code blocks longer than 5 lines.');
+    } else {
+      out.push('', '## Report back', '- Changed files: `path` - what changed', '- Commands run: `command` - pass or fail', '- Open risks and anything you did not check', 'Do not paste diffs or logs.');
+    }
+    return out.join('\n');
+  }
+
+  // Splits a .claude/agents file into its frontmatter fields and body.
+  function parseAgent(text) {
+    var lines = text.split('\n'), fm = {}, i = 1;
+    for (; i < lines.length && lines[i] !== '---'; i++) {
+      var k = lines[i].indexOf(':');
+      if (k > 0) fm[lines[i].slice(0, k).trim()] = lines[i].slice(k + 1).trim();
+    }
+    return { name: fm.name || '', desc: fm.description || '', tools: fm.tools || '', model: fm.model || '', body: lines.slice(i + 1).join('\n').replace(/^\n+/, '') };
+  }
+
+  // Same agent in another tool's format, as sync-agents.mjs writes it. The model comes from the map only.
+  function mirrorOut(tool, src, s) {
+    var a = parseAgent(src), tier = MODEL_TIER[a.model], mapped = tier && s.map ? s.map[tier] : null;
+    var out;
+    if (tool === 'codex') {
+      out = ['# Generated from .claude/agents/' + a.name + '.md by sync-agents.mjs. Edit the source and re-run it.', 'name = ' + JSON.stringify(a.name), 'description = ' + JSON.stringify(a.desc)];
+      if (mapped) out.push('model = ' + JSON.stringify(mapped));
+      out.push('developer_instructions = """', a.body, '"""');
+      return out.join('\n');
+    }
+    if (tool === 'gemini') {
+      out = ['---', 'name: ' + a.name, 'description: ' + JSON.stringify(a.desc), 'model: ' + (mapped || 'inherit'), '---'];
+    } else if (tool === 'opencode') {
+      out = ['---', 'description: ' + JSON.stringify(a.desc), 'mode: subagent'];
+      if (mapped && mapped.indexOf('/') !== -1) out.push('model: ' + mapped);
+      var canEdit = /(^|, )(Edit|Write)(,|$)/.test(a.tools), canBash = /(^|, )Bash(,|$)/.test(a.tools), perm = [];
+      if (!canEdit) perm.push('  edit: deny');
+      if (!canBash) perm.push('  bash: deny'); else if (!canEdit) perm.push('  bash: ask');
+      if (perm.length) {
+        out.push('permission:');
+        perm.forEach(function (p) { out.push(p); });
+      }
+      out.push('---');
+    } else {
+      out = ['---', 'name: ' + a.name, 'description: ' + JSON.stringify(a.desc), '---'];
+    }
+    out.push(a.body);
+    return out.join('\n');
+  }
+
+  // Agent files in .claude/agents for this run: the three fixed ones, then the role agents.
+  function agentNames(s, c) {
+    return ['explorer', 'test-runner'].concat(c.reviewer ? [c.reviewer.name] : [], s.roles);
+  }
+
+  function agentSourceFor(n, s, c) {
+    if (n === 'explorer') return explorerText(c);
+    if (n === 'test-runner') return runnerText(c);
+    if (c.reviewer && n === c.reviewer.name) return reviewerText(c);
+    return roleText(n, s, c);
+  }
+
+  function rosterDocText(c, s) {
+    var out = ['# Agents', '',
+      'Role agents are scoped workers. Each one owns some paths, may edit only some of them and reports back to the main agent. They do not run on their own. The roster comes from evidence in this repo; the `why` column shows it.', '',
+      '<!-- claude-setup:begin roster -->'];
+    table(['Role', 'Agent file', 'Tier', 'Scope', 'Why'], s.roles.map(function (k) {
+      var m = roleMeta(k, s, c);
+      return [k, bt('.claude/agents/' + k + '.md'), m.d.tier + ' (' + m.model + ')', m.scope.slice(0, 3).map(bt).join(', '), evidence(k, s, c)];
+    })).forEach(function (x) { out.push(x); });
+    out.push('<!-- claude-setup:end roster -->', '');
+    out.push('Always present: `explorer` (read-only search), `test-runner` (runs checks, returns failures)' + (c.reviewer ? ', `' + c.reviewer.name + '` (reviews a diff)' : '') + '.', '');
+    out.push('## Model tiers');
+    table(['Tier', 'Use for', 'Claude', 'Other tools'], [
+      ['fast', 'search, test runs, docs, release prep', '`haiku`', otherModel('fast', s)],
+      ['standard', 'implementation in a scope', '`sonnet`', otherModel('standard', s)],
+      ['deep', 'review, security, hard design', '`opus`', otherModel('deep', s)]
+    ]).forEach(function (x) { out.push(x); });
+    out.push('', 'Change a tier by editing `model:` in the agent file. Other tools inherit the session model unless a model map is given with --model-map.', '');
+    out.push('## Delegation contract',
+      'Every delegation message contains: goal, scope, writes, context, output format, budget. A subagent starts with no conversation history, so the message carries everything it needs. A role agent edits only its `writes` globs. If it needs another file it stops and names it. Two agents run in parallel only when their scopes and writes do not overlap. Role agents have no `Agent` tool, so they cannot spawn subagents.', '',
+      'Role agents answer in one shape: changed files, commands run with pass or fail, open risks.', '',
+      '## Working a task',
+      '1. Route the goal (router hint, or the routing table above).',
+      '2. Plan when the change spans more than one scope: `/plan-task`.',
+      '3. Delegate to role agents with the contract above. Use /orchestrate with the goal to run the whole sequence in Claude Code.',
+      '4. Run `test-runner`. At most 3 fix rounds, then stop and report.',
+      '5. Run the reviewer' + (s.roles.indexOf('security-reviewer') !== -1 ? ', and `security-reviewer` when its scope changed' : '') + '.', '');
+    var first = s.roles[0] || 'frontend';
+    var tools = ['- Claude Code: reads `.claude/agents/*.md`.' + (s.router ? ' The `UserPromptSubmit` hook (`.claude/hooks/route.mjs`) adds a one-line routing hint to each prompt.' : '') + (s.orch ? ' `/orchestrate` runs the sequence.' : '')];
+    if (has(s, 'codex')) tools.push('- Codex: reads `.codex/agents/*.toml`, mirrored from `.claude/agents/`. Codex spawns a subagent only when `AGENTS.md` says it may, so the Delegation section in `AGENTS.md` is required.');
+    if (has(s, 'gemini')) tools.push('- Gemini CLI: reads `.gemini/agents/*.md`. Write `@' + first + '` at the start of a prompt to force an agent.');
+    if (has(s, 'opencode')) tools.push('- opencode: reads `.opencode/agents/*.md` (`mode: subagent`). Use `@' + first + '` or let the main agent pick by description.');
+    if (has(s, 'copilot')) tools.push('- Copilot: the cloud agent reads `.github/agents/*.agent.md`. Copilot CLI and VS Code read `.claude/agents/*.md` directly.');
+    out.push('## How each tool uses this');
+    tools.forEach(function (x) { out.push(x); });
+    out.push('', 'After you edit an agent file, run `/claude-setup --update` to refresh the mirrors for the other tools and the tables above.');
+    return out.join('\n');
+  }
+
+  function orchestrateText(c, s) {
+    var sec = s.roles.indexOf('security-reviewer') !== -1;
+    var rev = c.reviewer ? c.reviewer.name : 'the reviewer';
+    var first = roleMeta(s.roles[0], s, c).scope[0];
+    var route = s.router
+      ? 'Run `node .claude/hooks/route.mjs --json "$ARGUMENTS"`. If the file is missing, read the routing table in `docs/agents.md`.'
+      : 'Read the routing table in `docs/agents.md`.';
+    return ['---', 'name: orchestrate',
+      'description: Route a goal to the right role agents, run them on their own scopes, test, review and report. Use for work that spans more than one area of the repo.',
+      'argument-hint: "[goal]"', 'disable-model-invocation: true', 'allowed-tools: Agent Read Grep Glob Bash(node .claude/hooks/route.mjs *)', '---',
+      'Goal: $ARGUMENTS', '',
+      'Work as the orchestrator. Role agents do the edits in their own scopes. Follow the steps in order.', '',
+      'Role agents in this repo: ' + s.roles.join(', ') + '.', '',
+      '1. Route. ' + route + ' Note the role, the plan and delegate flags and the confidence. If delegate is false, choose yourself.',
+      '2. Plan. If the route says plan, or the goal touches more than one scope, follow `.claude/skills/plan-task/SKILL.md`, then stop for approval. Skip this for a change you can state in one sentence.',
+      '3. Dispatch. Send each role agent one message in the format below. Run agents in parallel only when their scopes and writable paths do not overlap. Use `explorer` first when you do not know where the code lives.',
+      '4. Test. Send the changed files to `test-runner`. On failure, give the failures to the role agent that owns the failing file, then run `test-runner` again. Stop after 3 rounds and report what still fails.',
+      '5. Review. Send the changed file list to `' + rev + '`.' + (sec ? ' Add `security-reviewer` when a changed file is in its scope.' : '') + ' Fix findings that affect correctness, security or a stated requirement. Ignore style the linter covers.',
+      '6. Report in the format below. If the work will continue in a new session, tell the user to run `/handoff`.', '',
+      '## Delegation message', 'Every agent starts with no conversation history. Send all of this:', '',
+      '```text',
+      'Goal: Add a loading state to the orders list.',
+      'Scope: ' + first + ' and its tests. Leave the API alone.',
+      'Writes: ' + first,
+      'Context: the plan file if one exists, and the Hard rules in AGENTS.md.',
+      'Output: changed files with what changed; commands run with pass or fail; open risks',
+      'Budget: 30 tool calls. Stop and report if you reach it.',
+      '```', '',
+      '## Final report', '```markdown',
+      '## Result', 'Done, partly done or blocked, in one or two sentences.', '',
+      '## Route', 'role ' + s.roles[0] + ', plan no, confidence 0.78; overridden: no', '',
+      '## Changed', '- `path` - what changed (agent)', '',
+      '## Checks', '- `command` - pass or fail, rounds used of 3', '',
+      '## Review', '- path:line - problem, or No findings', '',
+      '## Open', '- risk, skipped check or question for the user',
+      '```'].join('\n');
+  }
+
+  // Router config as roster.mjs writes it: one route per toggled role, then the test-runner route.
+  function routerConfig(s, c) {
+    var roles = s.roles.map(function (k) {
+      var d = ROLE_DEFS[k];
+      return { name: k, agent: k, tier: d.tier, paths: roleMeta(k, s, c).scope, keywords: d.kw };
+    });
+    roles.push({ name: 'qa', agent: 'test-runner', tier: 'fast', paths: c.tests.paths, keywords: ['test', 'spec', 'coverage', 'flaky', 'lint', 'ci'] });
+    return { version: 1, roles: roles, tiers: { fast: 'haiku', standard: 'sonnet', deep: 'opus' }, thresholds: { confidence: 0.55 }, defaults: { role: 'main' }, log: true };
+  }
+
+  // Sample Route line, built from the first toggled role. The confidence is fixed for the sample.
+  function routeLine(s) {
+    if (!s.router) return 'Router off. No Route line is added to prompts.';
+    if (!s.roles.length) return 'Route: handle in main session. No role agent is written, so there is nothing to delegate to.';
+    var k = s.roles[0], t = ROLE_DEFS[k].tier;
+    return 'Route: ' + k + ' agent (tier ' + t + '/' + TIER_MODEL[t] + '), effort ' + TIER_EFFORT[t] + ', plan ' + (t === 'deep' ? 'yes' : 'no') + ', then test-runner. Confidence 0.78.';
   }
 
   function buildItems(s, c) {
     var items = [];
-    function add(path, why, id) {
-      items.push({ path: path, why: why, id: id, name: path.split('/').pop() });
+    function add(path, why, id, render) {
+      items.push({ path: path, why: why, id: id, name: path.split('/').pop(), render: render || null });
     }
     add('AGENTS.md', 'Shared source of truth: commands, working agreements, hard rules, version notes and boundaries. Most agents read it.', 'agents');
     add('CLAUDE.md', s.pipe ? 'Imports AGENTS.md and adds Claude-only efficiency lines.' : 'One import line. Claude Code reads AGENTS.md through it.', 'claude');
-    add('.claude/settings.json', 'Scoped permissions. Denies rm -rf, force pushes and secret files.' + (s.hook ? ' Adds the handoff hook.' : ''), 'settings');
+    add('.claude/settings.json', 'Scoped permissions. Denies rm -rf, force pushes and secret files.' + (s.hook ? ' Adds the handoff hook.' : '') + (s.router ? ' Adds the router hook.' : ''), 'settings');
     if (s.docs) {
       add('docs/architecture.md', 'Components, data flow and external services, each with a path. Observed facts only.', 'arch');
       add('docs/project-structure.md', 'Module graph and entry points, pasted between fence markers. --update refreshes the graph.', 'graph');
       add('docs/config.md', 'Env var names and config files, with the code that reads them. Never values.', 'config');
       if (!s.adr) add('docs/decisions/0000-template.md', 'ADR template for new decisions. Skipped when the repo already has an ADR folder.', 'adr');
+      if (s.rosterDoc) add('docs/agents.md', 'Roster table, model tiers and the delegation contract. The roster block sits between fence markers.', 'rosterdoc', function () { return rosterDocText(c, s); });
     }
     if (!s.minimal) {
       add('.claude/rules/code-style.md', 'Conventions the linter does not enforce, for source files. Loads when Claude reads a matching file.', 'style');
@@ -1064,8 +1547,16 @@
       add('.claude/agents/test-runner.md', 'Runs your checks and returns only the failures.', 'runner');
       if (c.reviewer) add('.claude/agents/' + c.reviewer.name + '.md', 'Read-only review checks for this stack. Keeps project memory in .claude/agent-memory/.', 'reviewer');
     }
+    s.roles.forEach(function (k) {
+      add('.claude/agents/' + k + '.md', roleWhy(k, s, c), 'role-' + k, function () { return roleText(k, s, c); });
+    });
+    if (s.router) {
+      add('.claude/hooks/route.mjs', 'Copied byte for byte from the skill. Runs on each prompt with no network and adds one Route line.', 'route', function () { return ROUTE_JS; });
+      add('.claude/router.json', 'Routes and tiers the hook reads. Roles come from the agents above. Confidence threshold 0.55.', 'router', function () { return JSON.stringify(routerConfig(s, c), null, 2); });
+    }
     if (s.skillsOn) {
       add('.claude/skills/plan-task/SKILL.md', 'Explores, writes a plan to docs/plans/, then stops for approval. Manual only.', 'plan');
+      if (s.orch) add('.claude/skills/orchestrate/SKILL.md', 'Routes a goal to the role agents, then tests, reviews and reports. Manual only.', 'orchestrate', function () { return orchestrateText(c, s); });
       add('.claude/skills/handoff/SKILL.md', 'Saves session state to .claude/handoff.md so a new session can continue. Manual only.', 'handoff');
     }
     if (s.rel) add('.claude/skills/release/SKILL.md', "Release steps that match this repo's version file and changelog. Manual only.", 'release');
@@ -1077,6 +1568,16 @@
     if (s.conv) {
       MIRROR_AGENTS.forEach(function (a) {
         if (has(s, a)) add(mirrorPath(a, c.rule.name), 'Same rule in ' + AGENT_NAME[a] + ' format, with its glob. Edit the source in .claude/rules instead.', a);
+      });
+    }
+    if (s.pipe) {
+      var names = agentNames(s, c);
+      ['codex', 'gemini', 'opencode', 'copilot'].forEach(function (t) {
+        if (!has(s, t)) return;
+        names.forEach(function (n) {
+          add(MIRROR_TOOLS[t].dir + n + MIRROR_TOOLS[t].ext, 'Generated from .claude/agents/' + n + '.md for ' + AGENT_NAME[t] + '. Do not edit by hand.', 'mirror-' + t + '-' + n,
+            function () { return mirrorOut(t, agentSourceFor(n, s, c), s); });
+        });
       });
     }
     return items;
@@ -1098,6 +1599,9 @@
     if (s.skipDocs) cmd += ' --skip-docs';
     if (s.skipPipeline) cmd += ' --skip-pipeline';
     if (s.skipSkills) cmd += ' --skip-skills';
+    if (s.noRouter) cmd += ' --no-router';
+    if (s.intent) cmd += ' --intent ' + shellQuote(s.intent);
+    if (s.modelMap) cmd += ' --model-map ' + argValue(s.modelMap);
     return cmd;
   }
 
@@ -1110,7 +1614,10 @@
         deny: DENY_BASE.concat(c.deny, ENV_DENY)
       }
     };
-    if (s.hook) o.hooks = HOOK;
+    var hooks = {};
+    if (s.hook) hooks.SessionStart = HOOK.SessionStart;
+    if (s.router) hooks.UserPromptSubmit = ROUTER_HOOK;
+    if (Object.keys(hooks).length) o.hooks = hooks;
     return o;
   }
 
@@ -1484,7 +1991,7 @@
     state.selected = item.id;
     $('prev-title').textContent = item.path;
     $('prev-why').textContent = item.why;
-    $('preview').textContent = PREVIEW[item.id](state.c, state.s);
+    $('preview').textContent = item.render ? item.render() : PREVIEW[item.id](state.c, state.s);
   }
 
   function syncLayout(s) {
@@ -1511,13 +2018,27 @@
     $('cmd').textContent = commandText(s);
 
     var flagNotes = [];
-    if (s.minimal) flagNotes.push('--minimal drops docs, rules, agents, skills, .mcp.json, .worktreeinclude and the .gitignore append. Adapters for picked agents stay.');
+    if (s.minimal) flagNotes.push('--minimal drops docs, rules, agents, skills, the router, the roster, agent mirrors, .mcp.json, .worktreeinclude and the .gitignore append. Adapters for picked agents stay.');
     if (s.skipDocs) flagNotes.push('--skip-docs leaves out docs/.');
-    if (s.skipPipeline) flagNotes.push('--skip-pipeline leaves out the explorer, test-runner, reviewer, plan-task, handoff, the handoff hook, the working agreements and the Claude efficiency lines.');
+    if (s.skipPipeline) flagNotes.push('--skip-pipeline leaves out the explorer, test-runner, reviewer, role agents, plan-task, handoff, the handoff hook, the router, orchestrate, agent mirrors, the working agreements and the Claude efficiency lines.');
     if (s.skipSkills) flagNotes.push('--skip-skills leaves out .claude/skills.');
+    if (s.noRouter) flagNotes.push('--no-router leaves out the router hook, route.mjs, router.json and the route log entry.');
     var nf = $('note-flags');
     nf.textContent = flagNotes.join(' ');
     nf.hidden = flagNotes.length === 0;
+
+    var roleNotes = [];
+    if (!s.pipe && s.roleCount) roleNotes.push('--minimal and --skip-pipeline leave out role agents, the router and agent mirrors.');
+    if (s.dropped.length) roleNotes.push('The roster caps role agents at ' + ROLE_CAP + '. Left out: ' + s.dropped.join(', ') + '.');
+    var nr = $('note-roles');
+    nr.textContent = roleNotes.join(' ');
+    nr.hidden = roleNotes.length === 0;
+
+    var inputNotes = [];
+    if (s.mapBad) inputNotes.push('Use tier=model pairs, comma separated, for example fast=haiku,standard=sonnet,deep=opus. The text is still passed to the command as typed.');
+    var ni = $('note-inputs');
+    ni.textContent = inputNotes.join(' ');
+    ni.hidden = inputNotes.length === 0;
 
     var optNotes = [];
     if (s.hookOn && !s.skillsOn) optNotes.push('The handoff hook needs the handoff skill. It is not written with --minimal, --skip-pipeline or --skip-skills.');
@@ -1531,6 +2052,8 @@
     na.textContent = extra.length ? 'Zed and Junie are not --agents values. They read AGENTS.md and need no file, so the command leaves them out.' : '';
     na.hidden = extra.length === 0;
 
+    $('route-line').textContent = routeLine(s);
+
     $('tpl').textContent = 'Template: ' + c.tpl;
 
     var tree = $('tree');
@@ -1541,7 +2064,7 @@
     var defPaths = buildItems(defaultState(s.stack), c).map(function (i) { return i.path; });
     var added = paths.filter(function (p) { return defPaths.indexOf(p) === -1; }).length;
     var left = defPaths.filter(function (p) { return paths.indexOf(p) === -1; }).length;
-    var counter = items.length + ' files, ' + (1 + s.agents.length) + ' agents covered.';
+    var counter = items.length + ' files, ' + s.roles.length + ' role agents, ' + (1 + s.agents.length) + ' tools covered.';
     if (added || left) counter += ' Against the default set: ' + added + ' added, ' + left + ' left out.';
     $('counter').textContent = counter;
 
@@ -1554,7 +2077,7 @@
         var li = el('li');
         li.appendChild(el('strong', null, AGENT_NAME[a]));
         li.appendChild(document.createTextNode(' '));
-        li.appendChild(el('span', null, 'reads AGENTS.md. Nothing to write.'));
+        li.appendChild(el('span', null, MIRROR_TOOLS[a] && s.pipe ? 'reads AGENTS.md. Its agent files are in the tree.' : 'reads AGENTS.md. Nothing to write.'));
         rl.appendChild(li);
       });
     }
@@ -1610,9 +2133,11 @@
     renderPreview();
   });
 
+  $('stack').addEventListener('change', function () { applyPreset($('stack').value); });
   $('controls').addEventListener('change', render);
   $('controls').addEventListener('input', render);
 
+  applyPreset($('stack').value);
   render();
 })();
 </script>
