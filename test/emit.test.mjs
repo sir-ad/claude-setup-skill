@@ -185,11 +185,8 @@ test('--stage writes .claude outputs only under .claude-setup, and apply.mjs ins
   const settings = JSON.parse(read(dir, '.claude/settings.json'));
   assert.deepEqual(settings.permissions, existing.permissions);
   assert.equal(hookCount(dir), 1);
-  assert.equal(exists(dir, '.claude-setup/staged'), false, 'staged/ removed after a successful apply');
-
-  const noop = spawnSync(process.execPath, [path.join(dir, '.claude-setup/apply.mjs')], { cwd: dir, encoding: 'utf8' });
-  assert.equal(noop.status, 0);
-  assert.match(noop.stdout, /nothing staged/);
+  assert.match(apply.stdout, /^removed \.claude-setup$/m);
+  assert.equal(exists(dir, '.claude-setup'), false, 'the staging folder is removed after a successful apply');
 });
 
 test('mirrors write .codex/agents/*.toml from .claude/agents/*.md', () => {

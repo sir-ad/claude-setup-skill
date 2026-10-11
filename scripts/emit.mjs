@@ -395,8 +395,9 @@ function applyMain(sync) {
     console.error('staged files kept; fix the errors above and run again');
     return 1;
   }
-  fs.rmSync(staged, { recursive: true, force: true });
-  console.log('removed .claude-setup/staged');
+  // The folder holds only this run's staging: staged/, this script and its README.
+  fs.rmSync(path.dirname(staged), { recursive: true, force: true });
+  console.log('removed .claude-setup');
   if (!sync || !fs.existsSync(path.join(root, '.claude', 'agents')) || !walk(path.join(root, '.claude', 'agents'), '').some((f) => f.endsWith('.md'))) return 0;
   const args = [sync.script, '--dir', root, '--targets', sync.targets.join(',')];
   if (sync.modelMap) args.push('--model-map', sync.modelMap);
@@ -441,7 +442,7 @@ const STAGE_README = [
   'Any other path under `staged/` is installed at the same path. `settings.json` is merged into the real file, never overwritten:',
   'permission lists are added to, and existing settings and hooks stay.',
   'To apply them, run from the project root: `node .claude-setup/apply.mjs`',
-  'On success the script deletes `staged/`. If agent mirrors were requested, it then runs sync-agents to create them.',
+  'On success the script deletes this folder. If agent mirrors were requested, it then runs sync-agents to create them.',
   'Delete this folder to discard the staged files.',
   '',
 ].join('\n');

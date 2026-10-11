@@ -371,7 +371,7 @@ const COMPACT_CAPS = {
   agentConfigs: 10, ci: 5, generated: 6, frameworks: 20, languages: 4,
 };
 // The compact core lists this many files of the repo map; the rest stay one command away.
-const COMPACT_REPO_MAP = 20;
+const COMPACT_REPO_MAP = 10;
 // The core is kept under this many bytes; above it, the compact level applies.
 export const CORE_MAX_BYTES = 30000;
 
