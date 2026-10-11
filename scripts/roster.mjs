@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { detect, SKIP_DIRS } from './detect.mjs';
 import { buildGraph } from './graph.mjs';
 
-const MAX_ROLES = 8; // besides explorer
+const MAX_ROLES = 8; // besides explorer and the product role
+const PRODUCT_ROLES = new Set(['cli', 'library', 'core']);
 const MAX_WALK = 12000;
 const MAX_DEPTH = 8;
 const MAX_MANIFESTS = 80;
@@ -62,13 +63,15 @@ const KW = {
   backend: 'endpoint api route handler controller middleware server request response auth validation rest graphql webhook'.split(' '),
   data: 'migration schema model query table index orm database sql seed column relation'.split(' '),
   infra: 'docker dockerfile deploy ci pipeline terraform k8s kubernetes helm env workflow container compose'.split(' '),
-  'test-runner': 'flaky failing lint typecheck regression ci run'.split(' '),
+  'test-runner': 'flaky failing lint typecheck regression run'.split(' '),
   'test-writer': 'test spec coverage e2e assertion mock fixture snapshot'.split(' '),
   docs: 'docs documentation readme guide tutorial example typo'.split(' '),
   mobile: 'screen ios android expo native navigation simulator'.split(' '),
-  release: 'release version changelog publish bump tag semver'.split(' '),
+  release: 'release version changelog publish tag semver'.split(' '),
+  cli: 'command flag option argument prompt cli'.split(' '),
+  library: 'api export function type'.split(' '),
 };
-const ORDER = ['frontend', 'backend', 'data', 'infra', 'mobile', 'docs', 'test-runner', 'test-writer', 'reviewer', 'security-reviewer', 'release'];
+const ORDER = ['cli', 'library', 'core', 'frontend', 'backend', 'data', 'infra', 'mobile', 'docs', 'test-runner', 'test-writer', 'reviewer', 'security-reviewer', 'release'];
 // Merge targets when over the role cap, nearest first; evicted lowest-evidence first (ties by this order).
 const MERGE = { release: ['docs', 'infra', 'backend', 'frontend'], docs: ['frontend', 'backend'], mobile: ['frontend'], infra: ['backend'],
   'test-writer': ['backend', 'frontend'], data: ['backend'], frontend: ['backend'], backend: ['frontend'] };
@@ -97,6 +100,11 @@ const DIR_KINDS = {
 };
 const DATA_FILE = /(^|\/)(schema\.prisma|alembic\.ini|sqlc\.ya?ml|knexfile\.\w+|drizzle\.config\.\w+|ormconfig\.\w+|flyway\.conf|liquibase\.properties)$/;
 const MANIFEST = /^(package\.json|pyproject\.toml|requirements[\w.-]*\.txt|Pipfile|go\.mod|Cargo\.toml|Gemfile|composer\.json|pom\.xml|build\.gradle(\.kts)?|pubspec\.yaml)$/;
+// Evidence under these dirs is scaffold output (a generator's template), not the product's own code.
+const SCAFFOLD_DIR = /(^|\/)(template|templates|scaffold|scaffolds|examples|example|starter|starters)(\/|$)/;
+const BIN_KINDS = new Set(['package-bin', 'python-script', 'python-main', 'go-main', 'rust-bin']);
+const LIB_KINDS = new Set(['package-main', 'package-module', 'package-exports']);
+const MANIFEST_IN_SOURCE = /^(\S+?(?:package\.json|Cargo\.toml|pyproject\.toml|go\.mod|setup\.py))(?=\s|$)/;
 
 const uniq = (a) => [...new Set(a)];
 const dirOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
@@ -342,7 +350,7 @@ function scanImports(root, tree, hits) {
       globs.add(g ? `${g}/**` : `*.${f.slice(f.lastIndexOf('.') + 1)}`);
     }
     const top = [...tops].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0] || '.';
-    out.set(name, { n: files.length, top, globs: [...globs].sort() });
+    out.set(name, { n: files.length, top, globs: [...globs].sort(), files: [...files].sort() });
   }
   return out;
 }
@@ -371,6 +379,33 @@ function scopeFallback(graph) {
   const top = [...by].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 3).map((x) => `${x[0]}/**`);
   return top.length ? top.sort() : ['**'];
 }
+
+// Largest source area by graph file count. Graph nodes count their own files, so areas are summed by the first
+// two path segments (cli/src/helpers + cli/src/utils -> cli/src); a source root (src/helpers -> src) is one segment.
+// Excluded dirs (templates, tests, docs...) never count.
+const SRC_ROOT = /^(src|lib|app|internal|pkg|source|sources)$/;
+function largestArea(graph) {
+  const by = new Map();
+  for (const n of (graph && graph.nodes) || []) {
+    const id = String((n && n.id) || '');
+    if (!id || id === '.' || EXCL.test(id)) continue;
+    const segs = id.split('/');
+    const key = SRC_ROOT.test(segs[0]) ? segs[0] : segs.slice(0, 2).join('/');
+    by.set(key, (by.get(key) || 0) + (Number(n.files) || 0));
+  }
+  const top = [...by].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]; // one file is not an area
+  return top ? { dir: top[0], files: top[1] } : null;
+}
+
+// Does a role scope glob ("dir/**") include or overlap this area? Patterns like **/x or Dockerfile* never claim an area.
+function touches(glob, area) {
+  if (!glob.endsWith('/**')) return false;
+  const base = glob.slice(0, -3);
+  if (!base || base.includes('*')) return false;
+  return base === area || area.startsWith(`${base}/`) || base.startsWith(`${area}/`);
+}
+
+const ancestorOrSelf = (dir, p) => dir === '' || p === dir || p.startsWith(`${dir}/`);
 
 function dirHits(kind, tree) {
   const names = new Set(DIR_KINDS[kind]);
@@ -442,7 +477,9 @@ function mk(name, kind, why, scope, writes, tools) {
 export function deriveRoster(dirArg = process.cwd(), opts = {}) {
   const warnings = [];
   const roles = [];
-  const fw = new Map(); // role name -> framework names (router keywords)
+  const fw = new Map(); // role name -> extra router keywords (framework names, or dir names for a core role)
+  let largest = null; // largest source area by graph file count: { dir, files }
+  const scaffolded = new Set(); // role names whose evidence is all scaffold output
   try {
     const root = path.resolve(dirArg);
     let det = opts.detection;
@@ -475,12 +512,18 @@ export function deriveRoster(dirArg = process.cwd(), opts = {}) {
     };
     // Scope = dirs of importing files (3 levels below the declaring package) + conventional dirs; dependency-only evidence
     // falls back to its package dir, then to graph source dirs.
+    // Scaffold: every piece of evidence (importing file, evidence dir, dependency dir) sits under a template-like dir.
+    // Such a role stays, is tagged in its why lines, and its scope narrows to those template dirs.
     const evidenceRole = (kind, deps, dirs, extraWhy = []) => {
       const lines = depLines(deps);
-      const why = [...lines.slice(0, 4), ...(lines.length > 4 ? [`${lines.length - 4} more ${kind} dependencies`] : []),
-        ...dirs.slice(0, 3).map((d) => `dir ${d.dir}/ (${plural(d.files, 'file')})`), ...extraWhy];
-      const g = [...deps.flatMap((h) => (h.imp ? h.imp.globs : h.dir ? [`${h.dir}/**`] : [])), ...dirs.map((d) => `${d.dir}/**`)];
-      return { why, scope: tidy(g.length ? g : fallback, warnings, kind) };
+      const evidence = [...deps.flatMap((h) => (h.imp ? h.imp.files : [h.dir || ''])), ...dirs.map((d) => d.dir)];
+      const scaffold = evidence.length > 0 && evidence.every((p) => SCAFFOLD_DIR.test(p));
+      const tag = scaffold ? ' (scaffold output)' : '';
+      const why = [...lines.slice(0, 4).map((l) => l + tag), ...(lines.length > 4 ? [`${lines.length - 4} more ${kind} dependencies`] : []),
+        ...dirs.slice(0, 3).map((d) => `dir ${d.dir}/ (${plural(d.files, 'file')})${tag}`), ...extraWhy.map((w) => w + tag)];
+      let g = [...deps.flatMap((h) => (h.imp ? h.imp.globs : h.dir ? [`${h.dir}/**`] : [])), ...dirs.map((d) => `${d.dir}/**`)];
+      if (scaffold && g.some((x) => SCAFFOLD_DIR.test(x))) g = g.filter((x) => SCAFFOLD_DIR.test(x));
+      return { why, scope: tidy(g.length ? g : fallback, warnings, kind), scaffold };
     };
 
     add(mk('explorer', 'explorer', ['always present: read-only codebase search'], ['**'], [], TOOLS.ro));
@@ -504,6 +547,7 @@ export function deriveRoster(dirArg = process.cwd(), opts = {}) {
       }
       if (!deps.length && !dirs.length && !extra.length) continue;
       const r = evidenceRole(kind, deps, dirs, extra);
+      if (r.scaffold) scaffolded.add(kind);
       add(mk(kind, kind, r.why, r.scope, r.scope, TOOLS.write), deps.map((d) => d.name));
     }
 
@@ -551,6 +595,7 @@ export function deriveRoster(dirArg = process.cwd(), opts = {}) {
     if (sec.length || settings) {
       const extra = settings ? [`django.contrib.auth in ${settings}`] : [];
       const r = evidenceRole('security', sec, secDirs, extra);
+      if (r.scaffold) scaffolded.add('security-reviewer');
       const scope = settings && dirOf(settings) ? tidy([...r.scope, `${dirOf(settings)}/**`], warnings, 'security') : r.scope;
       add(mk('security-reviewer', 'security', r.why, scope, [], TOOLS.ro), sec.map((d) => d.name));
     }
@@ -568,6 +613,45 @@ export function deriveRoster(dirArg = process.cwd(), opts = {}) {
       add(mk('release', 'release', [`version ${vf.length ? `file${vf.length > 1 ? 's' : ''} ${vf.slice(0, 3).join(', ')}` : 'managed by changesets'}`, `changelog ${names.slice(0, 2).join(', ')}`], scope, scope, TOOLS.write), []);
     }
 
+    // Product role: the package's own code (CLI, library or core) when no role's scope covers it. Candidates are the
+    // area holding the entry points of the shallowest package, then the largest source area by graph file count.
+    largest = largestArea(graph);
+    const uncovered = (area) => !roles.some((r) => r.kind !== 'explorer' && r.scope.some((g) => touches(g, area)));
+    const pkgOf = (p, source) => {
+      const m = MANIFEST_IN_SOURCE.exec(String(source || ''));
+      if (m) return dirOf(m[1]);
+      let best = null;
+      for (const x of mans) if (ancestorOrSelf(x.dir, dirOf(p)) && (best === null || depth(x.dir) > depth(best))) best = x.dir;
+      return best;
+    };
+    const entries = ((graph && graph.entryPoints) || [])
+      .filter((e) => e && e.path && (BIN_KINDS.has(e.kind) || LIB_KINDS.has(e.kind)) && dirOf(e.path))
+      .map((e) => ({ e, pkg: pkgOf(e.path, e.source), area: dirOf(e.path) }))
+      .filter((x) => x.pkg !== null)
+      .sort((a, b) => (a.e.path < b.e.path ? -1 : a.e.path > b.e.path ? 1 : 0));
+    const shallow = entries.length ? Math.min(...entries.map((x) => depth(x.pkg))) : -1;
+    const product = entries.filter((x) => depth(x.pkg) === shallow);
+    const entryHit = product.find((x) => uncovered(x.area));
+    const area = entryHit ? entryHit.area : largest && uncovered(largest.dir) ? largest.dir : null;
+    if (area) {
+      const pkg = entryHit ? entryHit.pkg : pkgOf(`${area}/x`, '');
+      const pkgEntries = entries.filter((x) => x.pkg === pkg);
+      const hasBin = pkgEntries.some((x) => BIN_KINDS.has(x.e.kind));
+      const hasLib = pkgEntries.some((x) => LIB_KINDS.has(x.e.kind))
+        || (pkg !== null && tree.files.some((f) => dirOf(f) === pkg && /^(go\.mod|setup\.py|pyproject\.toml)$/.test(baseOf(f))));
+      const frameworks = new Set([...kindHits.frontend, ...kindHits.backend].map((h) => h.name));
+      const withFramework = [...imports].some(([n, imp]) => frameworks.has(n) && imp.files.some((f) => f.startsWith(`${area}/`)));
+      const name = hasBin && !withFramework ? 'cli' : !hasBin && hasLib ? 'library' : 'core';
+      const why = [];
+      for (const x of product.filter((p) => p.area === area)) {
+        const bin = /\bbin\.([^"\s]+)/.exec(String(x.e.source || ''));
+        why.push(`entry point ${x.e.path} (${bin ? `bin ${bin[1]}` : x.e.kind})`);
+      }
+      if (largest && largest.dir === area) why.push(`largest source area ${area} (${largest.files} files)`);
+      const scope = [`${area}/**`];
+      add(mk(name, name, why, scope, scope, TOOLS.write), name === 'core' ? area.split('/') : []);
+    }
+
     // Intent: add a role only when the text names a capability. Scope is unknown.
     const have = new Set(roles.map((r) => r.kind));
     for (const { kind, phrase } of intentRoles(opts.intent, have)) {
@@ -578,14 +662,17 @@ export function deriveRoster(dirArg = process.cwd(), opts = {}) {
   } catch (e) {
     warnings.push(`roster error: ${e && e.message ? e.message : e}`);
   }
-  return finish(roles, fw, warnings);
+  return finish(roles, fw, warnings, largest, scaffolded);
 }
 
-function finish(roles, fw, warnings) {
+function finish(roles, fw, warnings, largest, scaffolded) {
   const out = roles;
-  const body = () => out.filter((r) => r.kind !== 'explorer');
+  // The product role (cli, library or core) is the repo's main code, so it does not count toward the cap.
+  const body = () => out.filter((r) => r.kind !== 'explorer' && !PRODUCT_ROLES.has(r.name));
   while (body().length > MAX_ROLES) {
-    const c = out.filter((r) => MERGE[r.name]).sort((a, b) => a.why.length - b.why.length || EVICT.indexOf(a.name) - EVICT.indexOf(b.name))[0];
+    // Scaffold roles are merged last: they are kept where the cap allows.
+    const c = out.filter((r) => MERGE[r.name]).sort((a, b) => (scaffolded.has(a.name) - scaffolded.has(b.name))
+      || a.why.length - b.why.length || EVICT.indexOf(a.name) - EVICT.indexOf(b.name))[0];
     if (!c) { warnings.push(`role cap ${MAX_ROLES} exceeded and no role can be merged`); break; }
     out.splice(out.indexOf(c), 1);
     const t = MERGE[c.name].map((n) => out.find((r) => r.name === n)).find(Boolean);
@@ -596,6 +683,13 @@ function finish(roles, fw, warnings) {
     t.merged = uniq([...(t.merged || []), c.name, ...(c.merged || [])]);
     fw.set(t.name, uniq([...(fw.get(t.name) || []), ...(fw.get(c.name) || [])]));
     warnings.push(`role cap ${MAX_ROLES}: merged ${c.name} into ${t.name}`);
+  }
+  if (largest && !out.some((r) => r.kind !== 'explorer' && r.scope.some((g) => touches(g, largest.dir)))) {
+    warnings.push(`largest source area ${largest.dir} (${largest.files} files) is outside every role scope`);
+  }
+  const sc = ['frontend', 'backend', 'data'].map((n) => out.find((r) => r.name === n));
+  if (sc.every(Boolean) && sc[0].scope.length && sc.every((r) => r.scope.join('|') === sc[0].scope.join('|'))) {
+    warnings.push(`frontend, backend and data share the scope ${sc[0].scope.join(', ')}; routing by path cannot tell them apart`);
   }
   const rank = (r) => (r.kind === 'explorer' ? -1 : ORDER.indexOf(r.kind === 'reviewer' ? 'reviewer' : r.name));
   out.sort((a, b) => rank(a) - rank(b));

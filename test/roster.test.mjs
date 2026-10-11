@@ -22,7 +22,7 @@ function makeTmp() {
 }
 process.on('exit', () => { for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true }); });
 
-const FIXTURES = ['roster-next-prisma', 'roster-fastapi', 'roster-go-cli', 'roster-monorepo', 'roster-auth'];
+const FIXTURES = ['roster-next-prisma', 'roster-fastapi', 'roster-go-cli', 'roster-monorepo', 'roster-auth', 'roster-cli-template'];
 
 test('every role has evidence, sane tools and tiers, and no Agent tool', () => {
   for (const f of FIXTURES) {
@@ -270,4 +270,80 @@ test('CLI: modes, intent and usage errors', () => {
   assert.equal(run(fixture('roster-auth'), '--intent').status, 2);
   assert.equal(run(fixture('roster-auth'), '--json', '--markdown').status, 2);
   assert.equal(run(path.join(fixture('roster-auth'), 'nope')).status, 2);
+});
+
+test('bin CLI owns its source; a scaffold template imports next and is marked as scaffold output', () => {
+  const r = deriveRoster(fixture('roster-cli-template'));
+  const c = role(r, 'cli');
+  assert.ok(c, names(r).join(','));
+  assert.deepEqual(c.scope, ['src/**']);
+  assert.equal(c.tier, 'standard');
+  assert.deepEqual(c.tools, ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash']);
+  assert.ok(c.why.includes('entry point src/index.ts (bin mini-cli)'), c.why.join('|'));
+  assert.ok(c.why.includes('largest source area src (4 files)'), c.why.join('|'));
+  assert.ok(c.why.every((w) => !/scaffold/.test(w)), 'the product role is not scaffold');
+  const fe = role(r, 'frontend');
+  assert.ok(fe, 'frontend from the template import');
+  assert.deepEqual(fe.scope, ['template/app/**']);
+  assert.ok(fe.why.length > 0 && fe.why.every((w) => /\(scaffold output\)$/.test(w)), fe.why.join('|'));
+  assert.equal(names(r).includes('library') || names(r).includes('core'), false);
+});
+
+test('a template package with no own code: scaffold roles keep their scope and no product role appears', () => {
+  const r = deriveRoster(project({
+    'package.json': { name: 'gen', version: '1.0.0', devDependencies: { next: '15.0.0', express: '4.0.0', '@prisma/client': '6.0.0' } },
+    'template/app/page.tsx': "import Link from 'next/link';\nexport default () => <Link href='/' />;\n",
+    'template/app/api.ts': "import express from 'express';\nexport default express();\n",
+    'template/app/db.ts': "import { PrismaClient } from '@prisma/client';\nexport const db = new PrismaClient();\n",
+  }));
+  assert.ok(!names(r).some((n) => ['cli', 'library', 'core'].includes(n)), names(r).join(','));
+  for (const n of ['frontend', 'backend', 'data']) assert.ok(role(r, n), n);
+  assert.ok(r.warnings.some((w) => /frontend, backend and data share the scope template\/app\/\*\*/.test(w)), r.warnings.join('\n'));
+});
+
+test('product role names: library for a package that exports, core for a plain source area', () => {
+  const lib = deriveRoster(project({ 'package.json': { name: 'lib', version: '1.0.0', main: './dist/index.js' }, 'src/index.ts': 'export const a = 1;\n', 'src/util.ts': 'export const b = 2;\n' }));
+  const l = role(lib, 'library');
+  assert.ok(l, names(lib).join(','));
+  assert.deepEqual(l.scope, ['src/**']);
+  assert.ok(l.why.includes('entry point src/index.ts (package-main)'), l.why.join('|'));
+  assert.ok(!names(lib).includes('cli'));
+
+  const core = deriveRoster(project({ 'package.json': { name: 'app', version: '1.0.0' }, 'src/a.ts': 'export const a = 1;\n', 'src/b.ts': 'export const b = 2;\n' }));
+  const c = role(core, 'core');
+  assert.ok(c, names(core).join(','));
+  assert.deepEqual(c.scope, ['src/**']);
+  assert.ok(toRouterConfig(core).roles.find((x) => x.name === 'core').keywords.includes('src'));
+
+  // one file is not an area: no product role for a single-file source dir
+  const one = deriveRoster(project({ 'package.json': { name: 'one', version: '1.0.0' }, 'src/only.ts': 'export const a = 1;\n' }));
+  assert.ok(!names(one).some((n) => ['cli', 'library', 'core'].includes(n)), names(one).join(','));
+});
+
+test('a largest source area outside every role scope is reported', () => {
+  const r = deriveRoster(project({
+    'package.json': { name: 'x', version: '1.0.0', bin: { x: './dist/x.js' } },
+    'src/x.ts': 'export const x = 1;\n',
+    'lib/a.ts': 'export const a = 1;\n',
+    'lib/b.ts': 'export const b = 2;\n',
+    'lib/c.ts': 'export const c = 3;\n',
+    'lib/d.ts': 'export const d = 4;\n',
+  }));
+  assert.deepEqual(role(r, 'cli').scope, ['src/**'], names(r).join(','));
+  assert.ok(r.warnings.some((w) => /^largest source area lib \(4 files\) is outside every role scope$/.test(w)), r.warnings.join('\n'));
+});
+
+test('keywords: ci is no longer a test-runner keyword, bump is no longer a release keyword', () => {
+  const c = toRouterConfig(deriveRoster(fixture('roster-fastapi')));
+  const tr = c.roles.find((x) => x.name === 'test-runner');
+  assert.ok(tr && tr.keywords.includes('lint') && tr.keywords.includes('flaky'));
+  assert.ok(!tr.keywords.includes('ci'), tr.keywords.join(','));
+  assert.ok(c.roles.find((x) => x.name === 'infra').keywords.includes('ci'), 'infra still owns ci');
+
+  const rel = toRouterConfig(deriveRoster(fixture('roster-next-prisma'))).roles.find((x) => x.name === 'release');
+  assert.ok(rel && rel.keywords.includes('changelog') && rel.keywords.includes('semver'));
+  assert.ok(!rel.keywords.includes('bump'), rel.keywords.join(','));
+
+  const cli = toRouterConfig(deriveRoster(fixture('roster-cli-template'))).roles.find((x) => x.name === 'cli');
+  for (const k of ['command', 'flag', 'option', 'argument', 'prompt', 'cli']) assert.ok(cli.keywords.includes(k), k);
 });
