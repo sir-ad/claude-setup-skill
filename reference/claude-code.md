@@ -24,7 +24,7 @@ Use plan mode for changes under `src/billing/`.
 
 Sources: https://code.claude.com/docs/en/settings , https://code.claude.com/docs/en/permissions
 
-Strict JSON: no comments, no trailing commas. If a permission mode refuses writes under `.claude/`, stage the file under `.claude-setup/staged/` and give the user `node .claude-setup/apply.mjs`. Never work around a refusal. Precedence, highest first: managed, `--settings`, `settings.local.json`, `settings.json`, `~/.claude/settings.json`. Arrays merge across files. A deny in any scope beats an allow in any scope.
+Strict JSON: no comments, no trailing commas. If a permission mode refuses writes under `.claude/`, write the file under `.claude-setup/drafts/` (permission lists in `drafts/permissions.json`), let `emit.mjs --write drafts --stage` stage it under `.claude-setup/staged/`, and give the user `node .claude-setup/apply.mjs`. Never work around a refusal. Precedence, highest first: managed, `--settings`, `settings.local.json`, `settings.json`, `~/.claude/settings.json`. Arrays merge across files. A deny in any scope beats an allow in any scope.
 
 ```json
 {
