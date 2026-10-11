@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-11
+
 ### Added
 
 - `scripts/roster.mjs` derives an agent roster from repo evidence: frontend, backend, data, infra, mobile, docs, test-writer, security-reviewer and release roles, at most 8 besides `explorer`. Each role lists the evidence for it, its scope, a model tier and its tools. `--intent "<text>"` shapes the roster for what you plan to build. `--markdown` and `--router-config` print the generated sections.

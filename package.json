@@ -1,7 +1,7 @@
 {
   "name": "@claude-setup-skill/install",
-  "version": "0.3.0",
-  "description": "Sets up any repo for coding agents: AGENTS.md, repo graph and docs, rules, subagents and plan/handoff skills, plus Codex, Cursor, Copilot and Gemini config.",
+  "version": "0.4.0",
+  "description": "Sets up any repo for coding agents: AGENTS.md, repo graph and docs, rules, an evidence-based agent roster with model tiers, a local prompt router, and agent files for Codex, Gemini, opencode and Copilot.",
   "bin": {
     "claude-setup-install": "./bin/install.js"
   },
@@ -52,7 +52,11 @@
     "code-graph",
     "subagents",
     "agentic-workflow",
-    "adr"
+    "adr",
+    "agent-orchestration",
+    "model-routing",
+    "prompt-router",
+    "opencode"
   ],
   "repository": {
     "type": "git",
