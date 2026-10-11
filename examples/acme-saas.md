@@ -24,6 +24,7 @@ acme-saas/
 ├── CLAUDE.md                          # @AGENTS.md + token habits for Claude Code
 ├── .worktreeinclude                   # .env, .env.local, CLAUDE.local.md
 ├── docs/
+│   ├── agents.md                      # roster + routing tables (script output) and delegation contract
 │   ├── architecture.md                # components and data flow, from the code
 │   ├── project-structure.md           # module graph (script output) + short notes
 │   └── config.md                      # env var names from .env.example, never values
@@ -43,15 +44,21 @@ acme-saas/
     ├── agents/
     │   ├── explorer.md                # read-only search, returns path:line
     │   ├── test-runner.md             # runs test/lint/typecheck, returns only failures
-    │   └── ts-reviewer.md             # TS strict, RSC, PII checks; memory: project
+    │   ├── ts-reviewer.md             # TS strict, RSC, PII checks; memory: project
+    │   ├── frontend.md                # edits apps/web/**, sonnet
+    │   ├── backend.md                 # edits apps/api/**, sonnet
+    │   └── data.md                    # edits packages/db/**, sonnet
+    ├── hooks/route.mjs                # router, copied from the skill
+    ├── router.json                    # routes and tiers from the roster
     └── skills/
         ├── plan-task/SKILL.md         # /plan-task: explore, write docs/plans/..., stop
+        ├── orchestrate/SKILL.md       # /orchestrate: route, dispatch role agents, test, review
         ├── handoff/SKILL.md           # /handoff: write .claude/handoff.md
         ├── release/SKILL.md           # changeset version, build, test, tag
         └── preview-deploy/SKILL.md    # vercel deploy + smoke check
 ```
 
-`docs/decisions/` was not written: the repo already has `docs/adr/`. `.gitignore` got `CLAUDE.local.md`, `.claude/settings.local.json`, `.claude/worktrees/` and `.claude/handoff.md` appended. No formatter hook and no handoff hook: the user answered no in the plan step. No `.mcp.json`: embeddings and code-search servers are opt-in.
+`docs/decisions/` was not written: the repo already has `docs/adr/`. `.gitignore` got `CLAUDE.local.md`, `.claude/settings.local.json`, `.claude/worktrees/` and `.claude/handoff.md` and `.claude/route-log.jsonl` appended. No formatter hook and no handoff hook: the user answered no in the plan step. No `.mcp.json`: embeddings and code-search servers are opt-in.
 
 ## docs/project-structure.md (excerpt)
 

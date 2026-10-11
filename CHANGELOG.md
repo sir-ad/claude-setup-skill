@@ -7,6 +7,26 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/roster.mjs` derives an agent roster from repo evidence: frontend, backend, data, infra, mobile, docs, test-writer, security-reviewer and release roles, at most 8 besides `explorer`. Each role lists the evidence for it, its scope, a model tier and its tools. `--intent "<text>"` shapes the roster for what you plan to build. `--markdown` and `--router-config` print the generated sections.
+- Role agents in `.claude/agents/<role>.md`, written from `blueprints/agents/role.md`. They edit only their own paths and never get the `Agent` tool. Tiers set the model: fast is haiku, standard is sonnet, deep is opus.
+- A prompt router. `scripts/router/route.mjs` is copied to `.claude/hooks/route.mjs` with a `.claude/router.json`, and runs as a `UserPromptSubmit` hook. It scores each prompt with plain rules and adds one line of advice: role, tier, effort, whether to plan. It makes no network call and never blocks. Optional Ollama and Strands Decider backends run only when the rules are unsure. The plan shows it as default yes.
+- `docs/agents.md` holds the roster and routing tables between `<!-- claude-setup:begin roster -->` and `<!-- claude-setup:end roster -->`. `--update` refreshes only the text inside the markers.
+- AGENTS.md gains "Routing" and "Delegation" sections. Codex spawns subagents only when told, so Delegation is required for it.
+- `/orchestrate <goal>` skill: route, plan when needed, dispatch role agents, test, review, report.
+- `scripts/sync-agents.mjs` mirrors `.claude/agents/` into `.codex/agents/*.toml`, `.gemini/agents/`, `.opencode/agents/` and `.github/agents/`. Generated files carry a marker, files without it are never overwritten, and `--check` works in CI. `--model-map fast=X,standard=Y,deep=Z` writes model names you choose.
+- Blueprints for roles, `/orchestrate`, `docs/agents.md`, the router hook and the Routing and Delegation sections. New references: `reference/model-tiers.md` and `reference/routing.md`. `reference/agent-adapters.md` lists the agent file format of each tool.
+- Flags `--intent`, `--no-router` and `--model-map`.
+- `test/consistency.test.mjs` checks that README, SKILL.md, the templates, the blueprints and the adapters reference agree.
+
+### Changed
+
+- `--minimal` skips the roster, router, docs and pipeline files. `--skip-pipeline` also skips role agents, `/orchestrate`, the router and the Routing and Delegation sections.
+- The injected context holds the core only: detection, repo graph, roster, router config, template, stack knowledge and the writing guide, plus an index. Blueprints and other references load on demand with `scripts/context.mjs --show <path>`.
+- The `.gitignore` entries in the plan now include `.claude/route-log.jsonl`. The plan lists them exactly as Phase 4 appends them.
+- Write order is `.claude/`, then `docs/`, then adapters, then AGENTS.md and CLAUDE.md, so they link only to files that exist.
+
 ## [0.3.0] - 2026-10-10
 
 ### Added
