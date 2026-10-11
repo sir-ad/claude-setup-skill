@@ -4,13 +4,14 @@ Two short sections for AGENTS.md. Routing tells any agent which role fits which 
 
 ## When to write
 - Default when the roster has at least one role agent. Skip with `--skip-pipeline` or `--minimal`.
+- Written even when every `.claude/` file is staged. These are AGENTS.md lines and need no file under `.claude/`. In that case they name only agents that exist in place.
 - If AGENTS.md already has sections with these purposes, merge missing lines only. Never reword the user's text.
 - Place both after "Working agreements". Together they take at most 25 lines of the generated AGENTS.md and count toward its line cap.
 
 ## Inputs
 - The Routing table in the injected `## Agent roster` section (signals, role). Take each role's tier from the roster table. Use them as the source. Compress, do not invent rows.
 - Which role agent files are written or exist, and which tools the user selected.
-- Whether `/orchestrate` is in the plan.
+- Whether `/orchestrate` is in place (not staged). Name it only then.
 
 ## Rules
 - Tool-neutral. Name roles and agent names, not tool features. The only Claude-specific line is the `/orchestrate` pointer, and only if the skill exists.

@@ -4,7 +4,7 @@ The `/plan-task <task>` skill. It explores, writes a plan file, and stops so the
 
 ## When to write
 - Default with the pipeline. Skip with `--skip-skills`, `--skip-pipeline` or `--minimal`.
-- Do not write it if `.claude/skills/plan-task/` exists. Offer a merge instead.
+- Do not write it if `.claude/skills/plan-task/` exists. List a MERGE in the plan instead.
 - Named plan-task because Claude Code has a built-in /plan command.
 - The plan file path is `docs/plans/<yyyy-mm-dd>-<slug>.md`. Create `docs/plans/` only when the skill first writes a plan. Do not create the folder during setup.
 

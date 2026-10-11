@@ -12,7 +12,7 @@ The main agent is the orchestrator. It routes the goal, plans when needed, hands
 |---|---|---|---|
 | `.claude/agents/explorer.md` | Read-only search. Reads `docs/project-structure.md` first. Returns `file:line` findings. | Read, Grep, Glob | haiku |
 | `.claude/agents/test-runner.md` | Runs the detected test and lint commands. Returns only failures. | Bash (scoped), Read, Grep | haiku |
-| `.claude/agents/<lang>-reviewer.md` | Reviews a diff against the repo's own rules. Keeps `memory: project`. | Read, Grep, Glob | per tier |
+| `.claude/agents/<lang>-reviewer.md` | Reviews a diff against the repo's own rules. Keeps `memory: project`. | Read, Grep, Glob | opus (deep tier) |
 | `.claude/agents/<role>.md` (0 to 8) | Edits one scope: frontend, backend, data, infra, mobile, docs, test-writer, security-reviewer or release. Edits only its `writes` globs. | Per role | Per tier |
 | `.claude/skills/plan-task/SKILL.md` | `/plan-task <task>`: explore, write a plan file, stop for approval. | | |
 | `.claude/skills/orchestrate/SKILL.md` | `/orchestrate <goal>`: route, plan, dispatch, test, review, report. | | |

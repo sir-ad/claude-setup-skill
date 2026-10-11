@@ -161,3 +161,28 @@ test('SKILL.md names the roster and router commands that exist', () => {
   assert.ok(SKILL.includes('claude-setup:begin roster'), 'SKILL.md does not name the roster fence');
   assert.ok(read('blueprints/docs/agents.md').includes('claude-setup:begin roster'), 'docs/agents.md blueprint has no roster fence');
 });
+
+test('SKILL.md generates the router and fences with emit.mjs, and never copies route.mjs by hand', () => {
+  assert.ok(SKILL.includes('emit.mjs'), 'SKILL.md does not mention emit.mjs');
+  for (const [name, text] of [['SKILL.md', SKILL], ['blueprints/hooks/router.md', read('blueprints/hooks/router.md')]]) {
+    assert.doesNotMatch(text, /node -e .*route\.mjs|copyFileSync/, `${name} copies route.mjs with a node -e command`);
+  }
+  assert.ok(SKILL.includes('.claude-setup/staged/') && SKILL.includes('node .claude-setup/apply.mjs'), 'SKILL.md does not name the staging folder and apply command');
+});
+
+test('every blueprint path named in SKILL.md, the blueprints and README exists', () => {
+  const files = ['SKILL.md', 'README.md'];
+  const walk = (rel) => {
+    for (const entry of fs.readdirSync(path.join(REPO, rel), { withFileTypes: true })) {
+      const child = `${rel}/${entry.name}`;
+      if (entry.isDirectory()) walk(child);
+      else if (entry.name.endsWith('.md')) files.push(child);
+    }
+  };
+  walk('blueprints');
+  for (const file of files) {
+    for (const m of read(file).matchAll(/\bblueprints\/[\w./-]*\w\.md\b/g)) {
+      assert.ok(exists(m[0]), `${file} names ${m[0]}, which does not exist`);
+    }
+  }
+});

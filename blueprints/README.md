@@ -6,6 +6,8 @@ Each blueprint has four sections: When to write, Inputs, Rules, Skeleton. Angle-
 
 Every file is listed in the plan (Phase 3) and written only after the user confirms. Flags that skip a group: `--skip-docs`, `--skip-pipeline`, `--skip-skills`, `--minimal`.
 
+Who writes what. The model writes prose and every other file with the Write tool. `scripts/emit.mjs` writes four generated parts, and the model never types their content: the router unit (`hooks/router.md`: `route.mjs`, `router.json`, the `UserPromptSubmit` entry and the log ignore line), the roster fence in `docs/agents.md`, the graph fence in `docs/project-structure.md`, and other-tool agent mirrors. A refused write under `.claude/` is staged by the skill (SKILL.md, Phase 4), never copied by hand.
+
 ## Index
 
 | Blueprint | Writes | Plan step | Skipped by |
@@ -45,5 +47,6 @@ Every file is listed in the plan (Phase 3) and written only after the user confi
 - Write only what the repo or a cited source supports. Grep before you name a path, flag or function.
 - Respect the size cap in the blueprint. Short sentences, imperative voice.
 - Never read `.env` files. Never write secret values.
-- If a file already exists, keep it and offer a merge. Replace only after a per-file yes.
-- Subagents do not get the `Agent` tool. Only the reviewer gets `memory: project`. Model comes from the tier: `fast` agents (explorer, test-runner, docs, release) use `haiku`, `standard` use `sonnet`, `deep` use `opus` or inherit. Role agents are written only for roles the roster lists.
+- If a file already exists, keep it or list a MERGE in the plan. Replacing a file needs a REPLACE line in the plan with its diff shown. The single Proceed gate covers the plan; no blueprint asks for a separate yes.
+- Subagents do not get the `Agent` tool. Only the reviewer gets `memory: project`. Model comes from the tier: `fast` agents (explorer, test-runner, docs, release) use `haiku`, `standard` use `sonnet`, `deep` use `opus` (`<lang>-reviewer` and `security-reviewer`). Role agents are written only for roles the roster lists.
+- Agent bodies are mirrored to other tools. Write tool-neutral wording such as "do not run shell commands", never "you have no Bash".

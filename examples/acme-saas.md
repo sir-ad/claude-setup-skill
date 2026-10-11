@@ -33,7 +33,7 @@ acme-saas/
 │   ├── api-hono.mdc
 │   └── db-drizzle.mdc
 └── .claude/
-    ├── settings.json                  # pnpm/turbo/read-only git allows; force-push and .env denies
+    ├── settings.json                  # pnpm/turbo/read-only git allows; force-push, hard reset, `pnpm publish`, `changeset publish` and .env denies. `pnpm run release` stays allowed: it only runs `changeset version`
     ├── rules/
     │   ├── code-style.md              # only what ESLint and Prettier do not enforce
     │   ├── testing.md                 # Vitest, single-test command, no live DB in unit tests
@@ -44,11 +44,11 @@ acme-saas/
     ├── agents/
     │   ├── explorer.md                # read-only search, returns path:line
     │   ├── test-runner.md             # runs test/lint/typecheck, returns only failures
-    │   ├── ts-reviewer.md             # TS strict, RSC, PII checks; memory: project
+    │   ├── ts-reviewer.md             # TS strict, RSC, PII checks; memory: project; model: opus
     │   ├── frontend.md                # edits apps/web/**, sonnet
     │   ├── backend.md                 # edits apps/api/**, sonnet
     │   └── data.md                    # edits packages/db/**, sonnet
-    ├── hooks/route.mjs                # router, copied from the skill
+    ├── hooks/route.mjs                # router, written by emit.mjs as a copy of the skill's route.mjs
     ├── router.json                    # routes and tiers from the roster
     └── skills/
         ├── plan-task/SKILL.md         # /plan-task: explore, write docs/plans/..., stop
@@ -62,7 +62,7 @@ acme-saas/
 
 ## docs/project-structure.md (excerpt)
 
-The block between the markers is script output from `scripts/graph.mjs`, pasted as is. The numbers are import counts. The notes below it are written by the model from files it opened.
+The block between the markers is script output from `scripts/graph.mjs`, written by `emit.mjs` and never typed by hand. The numbers are import counts. The notes below it are written by the model from files it opened.
 
 ````markdown
 # Project structure

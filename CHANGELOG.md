@@ -19,11 +19,31 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Blueprints for roles, `/orchestrate`, `docs/agents.md`, the router hook and the Routing and Delegation sections. New references: `reference/model-tiers.md` and `reference/routing.md`. `reference/agent-adapters.md` lists the agent file format of each tool.
 - Flags `--intent`, `--no-router` and `--model-map`.
 - `test/consistency.test.mjs` checks that README, SKILL.md, the templates, the blueprints and the adapters reference agree.
+- `scripts/emit.mjs` writes the generated parts with fixed content: the router as one unit (`route.mjs` copy, `router.json`, the `UserPromptSubmit` hook and the `.gitignore` line, all or nothing), the roster fence in `docs/agents.md`, the graph fence in `docs/project-structure.md` and other-tool agent mirrors. `--dry-run` lists the paths for the plan.
+- Staging for refused writes. When Claude Code refuses a `.claude/` write, the file goes to `.claude-setup/staged/` with `.claude-setup/apply.mjs` and a README. The report names one command: `node .claude-setup/apply.mjs`.
+- `verify.mjs` checks the fences: no placeholders, and the text between the markers equals script output.
+- Consistency tests: SKILL.md names `emit.mjs`, has no `node -e` copy of `route.mjs`, and every blueprint path it names exists.
+- Deny-list rule in SKILL.md: deny the real publish commands (`npm publish`, `pnpm publish`, `yarn npm publish`, `changeset publish`, `cargo publish`, `twine upload`, `gem push`) and any script whose body publishes. A script that only versions, such as `changeset version` behind `pnpm run release`, is not denied.
 
 ### Changed
 
 - `--minimal` skips the roster, router, docs and pipeline files. `--skip-pipeline` also skips role agents, `/orchestrate`, the router and the Routing and Delegation sections.
-- The injected context holds the core only: detection, repo graph, roster, router config, template, stack knowledge and the writing guide, plus an index. Blueprints and other references load on demand with `scripts/context.mjs --show <path>`.
+- The injected context holds the core only: detection, repo graph, roster, template, stack knowledge and the writing guide, plus an index. The router config is no longer injected; emit.mjs builds it. Knowledge bullets are filtered to the detected versions. Blueprints and other references load on demand with `scripts/context.mjs --show <path>`.
+- Reviewers (`<lang>-reviewer` and `security-reviewer`) are deep tier and write `model: opus`. The reviewer blueprint no longer says to leave `model` out, and role agents follow the same tier table.
+- The plan lists every file path with no brace shorthand, and the role count equals the number of role files listed. One Proceed gate covers the plan. Opt-in questions are yes/no lines answered with it.
+- Phase 4 writes model-authored `.claude/` files first, then runs emit.mjs. Writes under `.claude/` that are refused are staged, not printed. Routing and Delegation in AGENTS.md are written even when every `.claude/` file is staged.
+- Agent bodies use tool-neutral wording such as "do not run shell commands", because they are mirrored to other tools.
+- Phase 5 runs `verify.mjs --expect` on the planned paths written in place, checks the fences, and lists the `.claude-setup/` files in the report when staging was used.
+
+### Fixed
+
+- The router could be half-installed: `route.mjs` was copied by a `node -e` command while `router.json` and the hook were skipped. emit.mjs writes the router as one unit.
+- The roster fence in `docs/agents.md` could hold instruction text. Fences now hold script output only.
+- "Files to create by hand" pointed at a private scratch file. Refused files are staged under `.claude-setup/staged/` with a single apply command.
+- `<lang>-reviewer` had no model, although the roster said deep (opus).
+- The deny list could block a release script's own versioning step: `pnpm run release` runs `changeset version`, not publish.
+- The plan used brace shorthand such as `{frontend,backend}.md`, its role count did not match the file list, and it mentioned per-file yes gates that contradicted the single Proceed gate.
+- The router config, the roster fence and the other-tool agent mirrors are generated from `roster.mjs` and `.claude/agents/` by `emit.mjs`, not copied by the model.
 - The `.gitignore` entries in the plan now include `.claude/route-log.jsonl`. The plan lists them exactly as Phase 4 appends them.
 - Write order is `.claude/`, then `docs/`, then adapters, then AGENTS.md and CLAUDE.md, so they link only to files that exist.
 

@@ -4,10 +4,10 @@ One blueprint for every role agent in the roster: `frontend`, `backend`, `data`,
 
 ## When to write
 - Once per role in the injected `## Agent roster` section (or in the `--intent` re-run of `node "${CLAUDE_SKILL_DIR}/scripts/roster.mjs" . --intent "<text>" --markdown`). No roster entry, no file. Never write a role the roster did not list.
-- The roster caps role agents at 8, not counting `explorer`, `test-runner` and the reviewer. Do not exceed it.
+- The roster caps role agents at 8, not counting `explorer`, `test-runner` and the reviewer. Do not exceed it. The plan lists one line per role file, and the count of lines equals the roster count.
 - `explorer`, `test-runner` and `<lang>-reviewer` keep their own blueprints.
 - Skip with `--skip-pipeline` or `--minimal`.
-- Do not overwrite `.claude/agents/<role>.md` if it exists. Offer a merge and keep the user's checks.
+- Do not overwrite `.claude/agents/<role>.md` if it exists. The plan lists it as MERGE (keep the user's checks) or SKIP.
 
 ## Inputs
 - The roster row for the role: `Why` (evidence), `Scope` (globs) and `Tier`. Tools and writable paths are not in the table. Use `Read, Grep, Glob, Edit, Write, Bash` for a role that edits and `writes` = its scope globs. Use `Read, Grep, Glob` and no writes for `security-reviewer` and the reviewer. `node "${CLAUDE_SKILL_DIR}/scripts/roster.mjs" . --json` prints the exact `tools` and `writes` per role if you need them.
@@ -18,16 +18,17 @@ One blueprint for every role agent in the roster: `frontend`, `backend`, `data`,
 
 ## Rules
 - Frontmatter: `name` (the role), `description`, `tools` from the roster entry, `model` from the tier, `maxTurns: 30`.
-- Model from tier: `fast` -> `haiku`, `standard` -> `sonnet`, `deep` -> `opus`. If the user chose "inherit" for deep, leave `model` out. Other tools get their own files from `sync-agents.mjs`.
+- Model from tier: `fast` -> `haiku`, `standard` -> `sonnet`, `deep` -> `opus`. Deep covers the reviewers and `security-reviewer`. Other tools get their own files from `sync-agents.mjs`.
 - Never add `Agent`. Never add `memory`: only the reviewer has it.
 - The description is a routing contract. Say what the scope is, in repo terms, and when to use the agent: "Edits <scope> (<framework>). Use for <kinds of task>. Not for <neighbouring role>." Under 300 characters. Make it differ from the neighbours so Claude picks one.
-- Read-only roles (`security-reviewer`) get `Read, Grep, Glob` and no `Edit`, `Write` or `Bash`. Their description starts with "Reviews", their body drops the "May edit" part and says "You never edit files", and they report findings as `path:line - problem - fix`.
+- Read-only roles (`security-reviewer`) get `Read, Grep, Glob` and no `Edit`, `Write` or `Bash`. Their description starts with "Reviews", their body drops the "May edit" part and the Commands section, and says "You never edit files. Do not run shell commands." They report findings as `path:line - problem - fix`.
 - Body, at most 50 lines including frontmatter:
   1. Scope: the `scope[]` paths, then the 2 or 3 central modules.
   2. May edit: the `writes[]` globs. Must not edit: everything else in the repo, `generated[]`, lockfiles, `.env*`. If a task needs a file outside `writes[]`, stop and say which file and why.
   3. Checks: 3 to 6 lines. Each cites a repo fact in parentheses (a config file, a rule, a hard rule with `file:line`, a detected version). Grep before you ban or require a pattern. Drop a line the repo breaks on purpose.
-  4. Commands: only the detector's commands for this scope, run the narrowest form. Never install, deploy, publish, migrate against a real database, or start a dev server.
+  4. Commands (editing roles only): the detector's commands for this scope, the narrowest form. Never install, deploy, publish, migrate against a real database, or start a dev server.
   5. Output contract.
+- Tool-neutral wording. These bodies are mirrored to Codex, Gemini CLI, opencode and Copilot, which name tools differently. Write "do not run shell commands" or "you may edit <globs>", never "you have no Bash" or "use the Edit tool".
 - Output contract, the same for every role: changed files (one per line, with what changed), commands run with pass or fail, open risks and anything not checked. No pasted diffs or logs.
 - The agent starts with a fresh context. It sees CLAUDE.md, not the conversation. The body says: "The caller gives you the goal, the paths and the output format. If one is missing, ask for it in your reply."
 - Role hints. Candidates for the checks, not defaults:
@@ -42,7 +43,7 @@ One blueprint for every role agent in the roster: `frontend`, `backend`, `data`,
 | docs | docs generator and its config, link-check or spell-check script, generated pages to skip |
 | test-writer | test framework, test file naming, fixtures folder, mocking rule, coverage threshold in config |
 | security-reviewer | auth and session code, payment or crypto libraries, secret-scan config, rules in `.claude/rules/security.md` |
-| release | version file, changelog format, changeset config, tag format. Prepares the change; never tags, pushes or publishes |
+| release | version file, changelog format, changeset config, tag format. Prepares the change; never tags, pushes or publishes. It may run a release script that only versions (such as `changeset version`). It never runs one whose body publishes |
 
 ## Skeleton
 ```markdown

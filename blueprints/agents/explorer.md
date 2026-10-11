@@ -5,7 +5,7 @@ A read-only search subagent. It keeps file reads and grep output out of the main
 ## When to write
 - Default for every repo with more than a handful of source files.
 - Skip with `--skip-pipeline` or `--minimal`. Skip when the repo is tiny (fewer than about 20 source files) and say so in the plan.
-- Do not write it if `.claude/agents/explorer.md` exists. Offer a merge instead.
+- Do not write it if `.claude/agents/explorer.md` exists. List a MERGE in the plan instead.
 
 ## Inputs
 - Detector: `layout`, `workspaces`, `generated[]`, `docs`, the source roots named in the template.

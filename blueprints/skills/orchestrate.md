@@ -5,7 +5,7 @@ The `/orchestrate <goal>` skill. The main agent routes the goal, plans when need
 ## When to write
 - Default when the roster has at least one role agent besides `explorer`, `test-runner` and the reviewer. With no role agents, `/plan-task` plus the helpers is enough: skip it and say so in the plan.
 - Skip with `--skip-skills`, `--skip-pipeline` or `--minimal`.
-- Do not write it if `.claude/skills/orchestrate/` exists. Offer a merge.
+- Do not write it if `.claude/skills/orchestrate/` exists. List a MERGE in the plan.
 
 ## Inputs
 - The roster: role names, scopes, `writes[]`, tiers. The skill reads `docs/agents.md` at run time, so do not copy the table into the skill.

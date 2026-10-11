@@ -10,7 +10,7 @@ Each role agent has a tier, not a model name. The tier says how much capability 
 | `standard` | Implementation inside one scope, test writing | `sonnet` |
 | `deep` | Review, security review, architecture, hard debugging | `opus`, or `inherit` |
 
-The tier of each role comes from `scripts/roster.mjs`. A user can change one by editing `model:` in the agent file. `--update` keeps that edit.
+The tier of each role comes from `scripts/roster.mjs`. A user can change one by editing `model:` in the agent file. `--update` keeps that edit. Reviewers are deep: `<lang>-reviewer` and `security-reviewer` write `model: opus` in their files, so review does not depend on the session model.
 
 ## Why tiers
 

@@ -46,7 +46,7 @@ Use when the repo has npm, yarn, pnpm or bun workspaces, or turbo, nx or lerna c
 }
 ```
 - Add `Bash(turbo run *)` only if `turbo` is detected, `Bash(nx run *)` only for nx. Use `Bash(<pm> test *)` if the pm has a test shortcut.
-- Deny `Bash(<pm> run deploy*)`, `release*` and `publish*` for any such script that appears in `commands.other`.
+- Deny `Bash(<pm> run deploy*)` and `Bash(<pm> run publish*)` for such scripts in `commands.other`. Deny a `release*` script only when its body publishes (`npm publish`, `changeset publish`); a script that only versions (`changeset version`) stays allowed, because the release agent runs it.
 - Do not allow `npx *` or `node *`. They run arbitrary code. Allow the exact tools from the detector instead.
 - `Read(./.env.*)` also blocks `.env.example`. When the detector's `env.files` lists an example file, deny the real env files by name instead (for example `Read(./.env.local)`, `Read(./.env.production)`) so the example stays readable.
 

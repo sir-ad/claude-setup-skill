@@ -5,7 +5,7 @@ A subagent that runs the repo's checks and returns only the failures. Test outpu
 ## When to write
 - Default when the detector found at least one of `commands.test`, `commands.lint` or `commands.typecheck`.
 - Skip when none exist, with `--skip-pipeline`, or with `--minimal`.
-- Do not write it if `.claude/agents/test-runner.md` exists. Offer a merge instead.
+- Do not write it if `.claude/agents/test-runner.md` exists. List a MERGE in the plan instead.
 
 ## Inputs
 - Detector: `commands.test[]`, `commands.lint[]`, `commands.typecheck[]` with `source` and `alsoIn`. Prefer commands that appear in more than one source.

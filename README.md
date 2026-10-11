@@ -65,7 +65,7 @@ flowchart LR
 ```
 
 1. **Detect.** `context.mjs` runs the detector and the repo graph. The detector reads manifests, CI workflows and existing agent files. It never reads `.env` files or lockfile contents. Commands marked `implied:` are inferred from a manifest, so the skill checks them against your scripts.
-2. **Load guidance.** The matching template, knowledge notes, file blueprints, the agent roster and the router config load into context.
+2. **Load guidance.** The matching template, knowledge notes (only the bullets for your detected versions), the repo graph and the agent roster load into context. Blueprints load on demand.
 3. **Plan.** The skill prints every file it will write, with the exact `settings.json`. It asks you to confirm.
 4. **Write.** It writes `.claude/` first, then `docs/`, the adapters, and `AGENTS.md` and `CLAUDE.md` last, so they only link to files that exist.
 5. **Verify.** `verify.mjs` checks line counts, JSON, secret-like text and the `@AGENTS.md` import. The skill then compares the files with the plan.
@@ -204,8 +204,8 @@ It never writes empty folders, placeholder skills or legacy single-file rules.
 
 Scripts enforce these:
 - The detector lists each command with its source, such as `package.json#scripts.*` or a CI workflow. Nothing runs a command unless you say yes to one optional check.
-- The graph in `docs/project-structure.md` is script output, pasted between fence markers.
-- `verify.mjs` checks line counts, JSON syntax, secret-like text, the `@AGENTS.md` import and unsafe settings. It does not print a matched secret.
+- The router unit, the graph fence in `docs/project-structure.md` and the roster fence in `docs/agents.md` come from `emit.mjs`, which writes script output only between fence markers.
+- `verify.mjs` checks line counts, JSON syntax, secret-like text, the `@AGENTS.md` import, unsafe settings and the fences (no placeholders, text equal to script output). It does not print a matched secret.
 - The detector skips `.env` files, and the generated settings deny reads of them.
 
 The skill instructs the model to do these, and they are not enforced by code:
@@ -291,7 +291,8 @@ From source, this removes the symlink. It doesn't touch this repo or the files g
 ## Headless / CI
 
 - `claude -p "/claude-setup --dry-run"` prints the plan and writes nothing.
-- For a run that writes files, use interactive mode. With `--permission-mode acceptEdits`, Claude Code refuses writes to `.claude/settings.json` and `.claude/rules/`. The skill then prints their full content in its report, so you can create them by hand.
+- For a run that writes files, use interactive mode. With `--permission-mode acceptEdits`, Claude Code refuses writes under `.claude/`. The skill then stages those files under `.claude-setup/staged/` and lists them in its report.
+- Run `node .claude-setup/apply.mjs` from the project root to put the staged files in place.
 - If the skill cannot load its context because the skill directory is outside the allowed paths, pass `--add-dir ~/.claude/skills/claude-setup`.
 
 ## Contributing

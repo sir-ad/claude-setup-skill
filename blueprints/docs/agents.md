@@ -4,18 +4,18 @@ The tool-neutral description of the agent roster: who the role agents are, how a
 
 ## When to write
 - Default when the roster has at least one role agent. Skip with `--skip-docs` or `--minimal`.
-- Skip if the detector's `docs` list already has an equivalent (`docs/agents*`). Then offer to add the fence there after a per-file yes.
+- Skip if the detector's `docs` list already has an equivalent (`docs/agents*`). Then the fence goes there, listed in the plan as a planned change under the Proceed gate.
 - If the script fails or prints nothing, skip the file and say why in the plan. Never write the tables by hand.
 
 ## Inputs
-- Generated section: the injected `## Agent roster` section, without its heading. With `--intent`, use the output of `node "${CLAUDE_SKILL_DIR}/scripts/roster.mjs" . --intent "<text>" --markdown` instead, with its `## ` headings changed to `### ` as the injection does. It holds the roster table (role, agent file, tier, scope, why) and the routing table (signals, role).
+- Generated section: `emit.mjs --write agents-doc` fills the fence with the roster from `roster.mjs`, without its heading. It is the same derivation as the injected `## Agent roster` section. With `--intent`, pass the same `--intent` to emit.mjs. The section holds the roster table (role, agent file, tier, scope, why) and the routing table (signals, role).
 - Which role agents, `/orchestrate` and the router hook are in the plan or exist. State only what exists.
 - Which tools the user selected (Codex, Gemini, opencode, Copilot, Cursor), from the plan.
 - Tier-to-model values from `reference/model-tiers.md`, and any `--model-map` the user gave.
 - The skeleton must not point at `${CLAUDE_SKILL_DIR}`. The project may not have the skill installed. Refresh instructions say `/claude-setup --update`.
 
 ## Rules
-- The block between `<!-- claude-setup:begin roster -->` and `<!-- claude-setup:end roster -->` is the script output, pasted verbatim. Do not edit, trim or reorder it. Each fence comment appears once, on its own line.
+- The block between `<!-- claude-setup:begin roster -->` and `<!-- claude-setup:end roster -->` is filled by `emit.mjs` with script output only. The model never types, edits, trims or reorders it. Each fence comment appears once, on its own line.
 - Everything outside the fence is written by you. `--update` replaces only the fence content.
 - Each "How each tool uses this" bullet appears only for a tool the user selected. Facts come from `reference/agent-adapters.md`.
 - Name the router and `/orchestrate` only when they are written or exist. Drop those lines otherwise.
@@ -39,7 +39,7 @@ Always present: `explorer` (read-only search), `test-runner` (runs checks, retur
 |---|---|---|---|
 | fast | search, test runs, docs, release prep | `haiku` | inherit the session model |
 | standard | implementation in a scope | `sonnet` | inherit the session model |
-| deep | review, security, hard design | `opus` or inherit | inherit the session model |
+| deep | review, security, hard design | `opus` | inherit the session model |
 
 Change a tier by editing `model:` in the agent file. Other tools inherit the session model unless you map tiers to models when you run `/claude-setup --update`.
 
