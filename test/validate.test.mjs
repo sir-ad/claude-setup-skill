@@ -182,3 +182,32 @@ test('a blueprints path in SKILL.md that does not exist fails; placeholders are 
   edit(ok, 'SKILL.md', (t) => `${t.trimEnd()}\n\nSee blueprints/README.md and blueprints/skills/plan-task.md.\n`);
   assert.equal(validate(ok).code, 0);
 });
+
+test('a script path in a blueprint or reference that does not exist fails; real ones pass', () => {
+  const dir = copyRepo();
+  edit(dir, 'blueprints/hooks/router.md', (t) => `${t.trimEnd()}\n\nRun \`node "\${CLAUDE_SKILL_DIR}/scripts/no-such-script.mjs"\` first.\n`);
+  edit(dir, 'reference/routing.md', (t) => `${t.trimEnd()}\n\nSee scripts/router/missing.mjs.\n`);
+  const r = validate(dir);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /FAIL\s+blueprints\/hooks\/router\.md mentions scripts\/no-such-script\.mjs, which does not exist/);
+  assert.match(r.out, /FAIL\s+reference\/routing\.md mentions scripts\/router\/missing\.mjs, which does not exist/);
+
+  const ok = copyRepo();
+  edit(ok, 'blueprints/hooks/router.md', (t) => `${t.trimEnd()}\n\nSee scripts/roster.mjs, scripts/sync-agents.mjs and scripts/router/route.mjs.\n`);
+  assert.equal(validate(ok).code, 0);
+});
+
+test('the router script must exist, and scripts/ must ship for it', () => {
+  const missing = copyRepo();
+  fs.rmSync(path.join(missing, 'scripts', 'router', 'route.mjs'));
+  const a = validate(missing);
+  assert.equal(a.code, 1, a.out);
+  assert.match(a.out, /FAIL\s+scripts\/router\/route\.mjs is missing; the router hook is copied from it/);
+
+  const noShip = copyRepo();
+  edit(noShip, 'bin/install.js', (t) => t.replace(/\n\s*'scripts',/, ''));
+  const b = validate(noShip);
+  assert.equal(b.code, 1, b.out);
+  assert.match(b.out, /FAIL\s+"scripts" is missing from bin\/install\.js ITEMS/);
+  assert.match(b.out, /FAIL\s+scripts\/router\/route\.mjs does not ship/);
+});
