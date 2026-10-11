@@ -454,17 +454,6 @@ function rosterSections(dir, detection, graph) {
   }
 }
 
-// Demote markdown headings by `by` levels (outside code fences) so they stay below the section heading.
-function demoteHeadings(text, by) {
-  let inFence = false;
-  return text.split('\n').map((line) => {
-    if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
-    if (inFence) return line;
-    const m = line.match(/^(#{1,6})(\s.*)$/);
-    return m ? `${'#'.repeat(Math.min(6, m[1].length + by))}${m[2]}` : line;
-  }).join('\n');
-}
-
 // First prose sentence of a markdown file, for the guidance index.
 export function firstSentence(text) {
   const lines = text.split(/\r?\n/);
@@ -492,22 +481,20 @@ function clip(text, max) {
   return `${text.slice(0, max - 1).replace(/\s+\S*$/, '')}…`;
 }
 
-// Compact: the README's first sentence and one line per file, with the summary cut to 60 characters.
+// One line per file. Compact cuts each summary to 60 characters.
 function guidanceIndex(injected, { compact = false } = {}) {
   const readme = readSkillFile('blueprints/README.md');
   const paths = [
-    ...listBlueprints().filter((rel) => rel !== 'blueprints/README.md'),
+    ...listBlueprints(),
     PRACTICES,
-    ...listReferences().filter((rel) => rel !== ALWAYS_REFERENCE),
+    ...listReferences(),
   ].filter((rel) => !injected.has(rel));
   const lines = paths.map((rel) => {
     const summary = compact ? clip(firstSentence(readSkillFile(rel) || ''), 60) : firstSentence(readSkillFile(rel) || '');
     return summary ? `- ${rel}: ${summary}` : `- ${rel}`;
   });
-  let intro;
-  if (readme === null) intro = '(missing: blueprints/README.md could not be read)';
-  else if (compact) intro = firstSentence(readme);
-  else intro = demoteHeadings(readme, 2);
+  // The README's first sentence only; the whole README is one --show away like any blueprint.
+  const intro = readme === null ? '(missing: blueprints/README.md could not be read)' : firstSentence(readme);
   return [
     '## Guidance index',
     intro,
@@ -569,8 +556,9 @@ function assemble(detection, shared, template, knowledge, { full, trimVersions =
     for (const rel of listBlueprints()) sections.push({ name: `Blueprint: ${rel}`, text: section(`Blueprint: ${rel}`, rel) });
     for (const rel of listReferences()) sections.push({ name: `Reference: ${rel}`, text: section(`Reference: ${rel}`, rel) });
   } else {
-    sections.push({ name: `Reference: ${ALWAYS_REFERENCE}`, text: section(`Reference: ${ALWAYS_REFERENCE}`, ALWAYS_REFERENCE) });
-    sections.push({ name: 'Guidance index', text: guidanceIndex(new Set([ALWAYS_REFERENCE]), { compact }) });
+    // The compact core leaves even this reference to the index; SKILL.md says to fetch it first.
+    if (!compact) sections.push({ name: `Reference: ${ALWAYS_REFERENCE}`, text: section(`Reference: ${ALWAYS_REFERENCE}`, ALWAYS_REFERENCE) });
+    sections.push({ name: 'Guidance index', text: guidanceIndex(new Set(compact ? [] : [ALWAYS_REFERENCE]), { compact }) });
   }
 
   const header = (size) => [

@@ -328,18 +328,17 @@ test('default output is the core: no blueprints, practices, extra references or 
   assert.match(out, /Kept \d+ of \d+ version notes for detected versions\. Full note: --show knowledge\/node\.md/);
 });
 
-test('the guidance index has the blueprints README, the fetch command and one line per other file', () => {
+test('the guidance index has the README first sentence, the fetch command and one line per file', () => {
   const out = buildContext(fixture('empty'));
   const index = out.slice(out.indexOf('\n## Guidance index\n'));
-  const readmeBody = read('blueprints/README.md').split('\n').slice(1).join('\n').trim();
-  assert.ok(index.includes(readmeBody.split('\n')[0]), 'README prose is included');
-  assert.ok(/^#{3,6} /m.test(index), 'README headings are demoted below the section');
+  assert.ok(index.includes(firstSentence(read('blueprints/README.md'))), 'the README first sentence is the intro');
+  assert.ok(!/^#{3,6} (?!Available guidance)/m.test(index), 'the README body is not inlined');
   assert.ok(!index.split('\n').some((l) => /^#{1,2} /.test(l) && l !== '## Guidance index'), 'no stray top-level headings in the index');
   assert.ok(index.includes(`node "${SCRIPT}" --show <path> [<path>...]`), 'exact command with an absolute script path');
-  const expected = [...BLUEPRINT_FILES, 'knowledge/practices.md', ...REFERENCE_FILES.filter((r) => r !== 'reference/writing-agent-files.md')];
+  const expected = [...BLUEPRINTS, 'knowledge/practices.md', ...REFERENCE_FILES.filter((r) => r !== 'reference/writing-agent-files.md')];
   for (const rel of expected) assert.ok(new RegExp(`^- ${rel.replace(/[.]/g, '\\.')}(: .+)?$`, 'm').test(index), rel);
   assert.ok(!/^- reference\/writing-agent-files\.md/m.test(index), 'already injected, so not listed');
-  assert.ok(!/^- blueprints\/README\.md/m.test(index));
+  assert.match(index, /^- blueprints\/README\.md: .+/m, 'the README is listed so it can be fetched');
   assert.match(index, /^- blueprints\/skills\/handoff\.md: .+/m);
 });
 
@@ -617,7 +616,10 @@ test('the Default toolchain section stays only in the primary ecosystem note, an
 test('the compact core gives the index one short line per file and counts the detection lists it caps', () => {
   const normal = buildContext(fixture('node-pnpm-monorepo'));
   const compact = buildContext(fixture('node-pnpm-monorepo'), { budget: 1 });
-  assert.ok(Buffer.byteLength(compact) <= Buffer.byteLength(normal));
+  assert.ok(Buffer.byteLength(compact) < Buffer.byteLength(normal));
+  assert.ok(normal.includes('\n## Reference: reference/writing-agent-files.md\n'));
+  assert.ok(!compact.includes('\n## Reference: reference/writing-agent-files.md\n'), 'compact moves the reference to the index');
+  assert.match(compact, /^- reference\/writing-agent-files\.md: .+/m);
   const entries = compact.split('\n').filter((l) => /^- (blueprints|knowledge|reference)\//.test(l));
   assert.ok(entries.length > 20, `${entries.length} index lines`);
   for (const line of entries) assert.ok(line.length <= 130, line);

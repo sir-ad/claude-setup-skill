@@ -25,7 +25,7 @@ The core is injected here: the detector JSON, the repo graph, the agent roster, 
 
 If the output above contains `CONTEXT_ERROR` or has no `## Detection` section, follow "If the context is missing" in Phase 2 first.
 
-The header lists `Template:`, `Knowledge:`, `Sections:` and `Size:`. Sections follow in this order: `## Detection`, `## Template`, `## Knowledge` notes for the stack, `## Repo graph`, `## Agent roster`, `## Reference: reference/writing-agent-files.md` and `## Guidance index`. The index is `blueprints/README.md` plus a one-line entry for every other blueprint, reference and knowledge file. `Size:` is the size of this injected context, not of the repo. Headings inside the roster are demoted to `###`.
+The header lists `Template:`, `Knowledge:`, `Sections:` and `Size:`. Sections follow in this order: `## Detection`, `## Template`, `## Knowledge` notes for the stack, `## Repo graph`, `## Agent roster`, `## Reference: reference/writing-agent-files.md` and `## Guidance index`. On a large repo the core is compacted: lists are capped harder and the writing reference moves to the index. If `## Reference: reference/writing-agent-files.md` is absent, fetch it with `--show` before writing any file. The index has one line for each blueprint (the README first), reference and knowledge file that is not injected. `Size:` is the size of this injected context, not of the repo. Headings inside the roster are demoted to `###`.
 
 **Permission mode.** Writes under `.claude/` need a permission mode that allows them. Interactive mode asks for each file. Headless `acceptEdits` refuses them. The skill still works: Phase 4 stages a refused file under `.claude-setup/` and gives one apply command. Never change the permission mode or the settings to get a write through.
 
@@ -70,6 +70,8 @@ The template, stack knowledge notes and writing guide are already in the injecte
 Blueprints are not injected. After the plan is confirmed and before Phase 4, fetch only the blueprints for files in the plan, in one or two batched calls:
 
 `node "${CLAUDE_SKILL_DIR}/scripts/context.mjs" --show blueprints/agents/role.md blueprints/docs/agents.md blueprints/hooks/router.md`
+
+Run it as one plain command: no `cd`, `&&`, pipe or redirect. A compound command needs its own approval and can stall a headless run.
 
 The paths come from the Guidance index and the Phase 4 table. The same call fetches `knowledge/practices.md` (for the rules files) and any reference. While planning, fetch `reference/model-tiers.md`, `reference/routing.md` or `reference/code-search.md` only if a question needs them. Do not fetch what the plan does not use.
 
@@ -118,8 +120,8 @@ Will write (one line per file, real paths, no globs, braces or placeholders):
   .claude/skills/handoff/SKILL.md           (NEW)
   .claude/skills/<name>/SKILL.md            (NEW, reason: <workflow>; one line per extra skill)
   .worktreeinclude                          (NEW | SKIP)
-  .gemini/settings.json                     (NEW | MERGE)
-  .aider.conf.yml                           (NEW | MERGE)
+  .gemini/settings.json                     (NEW | MERGE, only when gemini is selected)
+  .aider.conf.yml                           (NEW | MERGE, only when aider is selected)
   <one line per mirror path from the dry run>
   .gitignore                                (append: CLAUDE.local.md, .claude/settings.local.json, .claude/worktrees/, .claude/handoff.md, .claude/route-log.jsonl)
 
@@ -166,7 +168,7 @@ Rules for the plan:
 **Write order.** The Write tool writes every file, except the parts `emit.mjs` owns: the router unit, the two fences in `docs/` and the agent mirrors. Those are never typed by hand.
 
 1. **Model-authored `.claude/` files.** Write each with the Write tool, from its blueprint: the role, reviewer, explorer and test-runner agents, the rules, the skills, and the settings JSON without the router hook (emit.mjs merges that).
-2. **Docs and other files.** Write the `docs/` prose with each fence comment on its own line and nothing between the pair. Then `.worktreeinclude`, `.gemini/settings.json`, `.aider.conf.yml` and the other `.gitignore` entries.
+2. **Docs and other files.** Write the `docs/` prose with each fence comment on its own line and nothing between the pair. Then `.worktreeinclude`, the other `.gitignore` entries, and `.gemini/settings.json` or `.aider.conf.yml` only when that tool is selected.
 3. **Generated parts.** Run `node "${CLAUDE_SKILL_DIR}/scripts/emit.mjs" . --write router,agents-doc,structure-doc,mirrors [--targets <list>] [--intent "<text>"] [--model-map fast=X,standard=Y,deep=Z]`. Leave out `router` with `--no-router`, `agents-doc` or `structure-doc` when those files are skipped. Pass `mirrors` only when another tool is selected, with `--targets` for those tools. It runs only once `.claude/agents/` is in place. It writes the router as one unit (`.claude/hooks/route.mjs` as a byte copy of `scripts/router/route.mjs`, `.claude/router.json`, the `UserPromptSubmit` entry in settings, the `.claude/route-log.jsonl` line in `.gitignore`; all or nothing). It fills the roster fence in `docs/agents.md` and the graph fence in `docs/project-structure.md` with script output only, and writes other-tool agent mirrors. Add `--stage` only after a refusal (below).
 4. **AGENTS.md, then CLAUDE.md**, last, so they link only to files that exist.
 
