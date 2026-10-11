@@ -347,3 +347,24 @@ test('keywords: ci is no longer a test-runner keyword, bump is no longer a relea
   const cli = toRouterConfig(deriveRoster(fixture('roster-cli-template'))).roles.find((x) => x.name === 'cli');
   for (const k of ['command', 'flag', 'option', 'argument', 'prompt', 'cli']) assert.ok(cli.keywords.includes(k), k);
 });
+
+test('data keywords: detected ORM and migration deps add their bare names, generic db words always', () => {
+  const kw = (r) => toRouterConfig(r).roles.find((x) => x.name === 'data').keywords;
+  const base = kw(deriveRoster(fixture('roster-next-prisma')));
+  for (const k of ['schema', 'migration', 'database', 'db', 'prisma']) assert.ok(base.includes(k), k);
+  assert.ok(!base.includes('drizzle') && !base.includes('sqlalchemy'), base.join(','));
+
+  const py = kw(deriveRoster(fixture('roster-fastapi')));
+  assert.ok(py.includes('sqlalchemy') && py.includes('alembic'), py.join(','));
+  assert.ok(!py.includes('prisma'), py.join(','));
+
+  const mono = kw(deriveRoster(fixture('roster-monorepo')));
+  assert.ok(mono.includes('drizzle-orm') && mono.includes('drizzle'), mono.join(','));
+
+  // a scaffold repo: drizzle only in a template dir still counts as detected
+  const t3 = deriveRoster(project({
+    'package.json': { name: 't3', version: '1.0.0', devDependencies: { 'drizzle-orm': '^0.30.0', 'drizzle-kit': '^0.20.0' } },
+    'template/extras/db/schema.ts': "import { pgTable } from 'drizzle-orm/pg-core';\nexport const t = pgTable('t', {});\n",
+  }));
+  assert.ok(kw(t3).includes('drizzle'), kw(t3).join(','));
+});

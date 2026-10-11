@@ -61,7 +61,7 @@ const NAME_ALIAS = { '@sveltejs/kit': 'sveltekit', '@angular/core': 'angular', '
 const KW = {
   frontend: 'component page ui css style layout button form render hook tailwind modal navbar responsive theme view'.split(' '),
   backend: 'endpoint api route handler controller middleware server request response auth validation rest graphql webhook'.split(' '),
-  data: 'migration schema model query table index orm database sql seed column relation'.split(' '),
+  data: 'migration schema model query table index orm database db sql seed column relation'.split(' '),
   infra: 'docker dockerfile deploy ci pipeline terraform k8s kubernetes helm env workflow container compose'.split(' '),
   'test-runner': 'flaky failing lint typecheck regression run'.split(' '),
   'test-writer': 'test spec coverage e2e assertion mock fixture snapshot'.split(' '),
@@ -110,6 +110,10 @@ const uniq = (a) => [...new Set(a)];
 const dirOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 const baseOf = (p) => p.slice(p.lastIndexOf('/') + 1);
 const depth = (p) => (p ? p.split('/').length : 0);
+// ORM and migration tools: a detected dependency adds its bare name as a data keyword ("drizzle-orm" -> "drizzle").
+const ORM_WORDS = ['drizzle', 'prisma', 'sqlalchemy', 'alembic', 'sqlmodel', 'tortoise', 'peewee', 'activerecord', 'typeorm', 'sequelize', 'knex', 'kysely', 'mongoose',
+  'mikro-orm', 'flyway', 'liquibase', 'jpa', 'sqlx', 'diesel', 'sea-orm', 'gorm', 'goose', 'doctrine'];
+const ormWords = (names) => uniq(names.flatMap((n) => n.toLowerCase().replace(/^@/, '').split('/').flatMap((seg) => ORM_WORDS.filter((w) => seg === w || seg.startsWith(`${w}-`) || seg.startsWith(`${w}.`) || seg.endsWith(`-${w}`)))));
 const short = (n) => NAME_ALIAS[n] || n.replace(/^@/, '').split('/')[0].replace(/-\*$/, '');
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
@@ -549,6 +553,7 @@ export function deriveRoster(dirArg = process.cwd(), opts = {}) {
       const r = evidenceRole(kind, deps, dirs, extra);
       if (r.scaffold) scaffolded.add(kind);
       add(mk(kind, kind, r.why, r.scope, r.scope, TOOLS.write), deps.map((d) => d.name));
+      if (kind === 'data') fw.set('data', uniq([...(fw.get('data') || []), ...ormWords(deps.map((d) => d.name))]));
     }
 
     const inf = infraInfo(tree, det);

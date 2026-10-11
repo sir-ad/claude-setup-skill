@@ -389,6 +389,121 @@ test('CI prompts on the t3 config: an edit aimed at infra beats failure words', 
 });
 
 // ---------------------------------------------------------------------------
+// Negation, shared paths, corroboration and the low-confidence fallback
+// ---------------------------------------------------------------------------
+
+test('glued negators are names, not negation: --no-install, without-x, no_x, noX', () => {
+  const c = { roles: [{ name: 'cli', paths: ['cli/src/**'], keywords: ['flag', 'cli', 'command'] }] };
+  for (const p of [
+    'add a --no-install style CLI flag to the create command in cli/src/cli/index.ts',
+    'add a --no-install CLI flag in cli/src/index.ts',
+    'add a --no-install CLI flag to the create command',
+    'add a without-git cli flag to the create command',
+    'add a no_cache cli flag to the create command',
+    'add the noInstall cli flag to the create command',
+  ]) {
+    const d = classify(p, c);
+    assert.equal(d.role, 'cli', p);
+    assert.equal(d.delegate, true, p);
+    assert.ok(!d.reasons.some((r) => /negated/.test(r)), p);
+  }
+  // real negation still works: separate words only
+  assert.equal(classify("don't add a flag to the create command", c).delegate, false);
+  assert.equal(classify('add a flag without the cli command', c).delegate, false);
+  assert.equal(classify('add a flag but do not touch the cli command', c).role, 'main');
+  assert.ok(classify('do not touch cli/src/index.ts', c).reasons.some((r) => /negated/.test(r)));
+});
+
+test('a path match survives negation of a keyword in another clause', () => {
+  const c = { roles: [{ name: 'cli', paths: ['cli/src/**'], keywords: ['flag', 'cli'] }] };
+  const d = classify('the cli has no verbose flag, add one in cli/src/index.ts', c);
+  assert.equal(d.role, 'cli');
+  assert.equal(d.delegate, true);
+  assert.deepEqual([...d.detail.score.get('cli').paths], ['cli/src/index.ts']);
+});
+
+test('shared globs: the most specific glob wins, equal specificity stays a tie, keyword evidence breaks it', () => {
+  const t3 = { roles: [
+    { name: 'frontend', paths: ['app/**'], keywords: ['react'] },
+    { name: 'backend', paths: ['app/**'], keywords: ['server'] },
+    { name: 'data', paths: ['app/**'], keywords: ['drizzle', 'schema', 'db'] },
+    { name: 'api', paths: ['app/server/**'], keywords: ['endpoint'] },
+  ] };
+  // longer literal prefix wins outright
+  const s = classify('add a file in app/server/x.ts', t3);
+  assert.equal(s.role, 'api');
+  assert.equal(s.delegate, true);
+  assert.equal(s.detail.score.get('data').path, 0);
+  // identical globs and no other evidence: a real tie, so no delegation and the main agent orchestrates
+  const tie = classify('add a file in app/lib/x.ts', t3);
+  assert.equal(tie.delegate, false);
+  assert.ok(tie.confidence < 0.55);
+  assert.ok(['frontend', 'backend', 'data'].every((n) => tie.detail.score.get(n).path === 1));
+  // one tied role has keyword evidence in the prompt: it takes the path credit
+  const d = classify('add a new template file for the drizzle extras in app/server/db/x.ts', { roles: t3.roles.slice(0, 3) });
+  assert.equal(d.role, 'data');
+  assert.equal(d.delegate, true);
+  assert.equal(d.plan, false);
+  assert.equal(d.detail.score.get('frontend').path, 0);
+  // evidence on two of three tied roles splits the credit between those two
+  const two = classify('add a react server file in app/lib/x.ts', { roles: t3.roles.slice(0, 3) });
+  assert.equal(two.detail.score.get('data').path, 0);
+  assert.equal(two.detail.score.get('frontend').path, 1.5);
+});
+
+test('t3-like repo: the drizzle template prompt goes to the data agent, not a three-way tie', () => {
+  const shared = ['cli/template/extras/config/**', 'cli/template/extras/src/**'];
+  const c = { roles: [
+    { name: 'frontend', paths: shared, keywords: ['component', 'page', 'react'] },
+    { name: 'backend', paths: ['cli/template/extras/src/**'], keywords: ['endpoint', 'api', 'trpc'] },
+    { name: 'data', paths: shared, keywords: ['migration', 'schema', 'database', 'db', 'drizzle-orm', 'drizzle'] },
+  ] };
+  const d = classify('add a new template file for the drizzle extras in cli/template/extras/src/server/db', c);
+  assert.equal(d.role, 'data');
+  assert.equal(d.delegate, true);
+  assert.equal(d.plan, false);
+  assert.equal(d.tier, 'standard');
+  assert.ok(d.confidence >= 0.55, d.confidence);
+});
+
+test('corroboration: a second distinct keyword lifts a narrow win over the threshold, one weak hit does not', () => {
+  const c = { roles: [{ name: 'publisher', keywords: ['version', 'changelog', 'tag'] }, { name: 'docs', keywords: ['notes'] }] };
+  const two = classify('update the version and tag for notes', c);
+  assert.equal(two.role, 'publisher');
+  assert.ok(two.confidence >= 0.55, two.confidence); // 0.54 before the corroboration term
+  assert.ok(classify('the version looks wrong', c).confidence < 0.55);
+  assert.ok(classify('the version', c).confidence < 0.55);
+  assert.ok(classify('update the version and changelog', c).confidence > classify('update the version', c).confidence);
+  // an unrelated single keyword never gains from it
+  assert.equal(classify('the changelog', c).detail.score.get('publisher').kws.length, 1);
+});
+
+test('low-confidence fallback: main agent, standard tier, no plan unless size or breadth signals say so', () => {
+  const c = { roles: [{ name: 'frontend', keywords: ['button'] }] };
+  const vague = 'the thing on the second screen looks off when the data loads and I am not sure what is going on there so please take a look at it when you get a chance';
+  const d = classify(vague, c);
+  assert.ok(d.confidence < 0.55);
+  assert.equal(d.role, 'main');
+  assert.equal(d.delegate, false);
+  assert.equal(d.effort, 'medium');
+  assert.equal(d.tier, 'standard');
+  assert.equal(d.plan, false);
+  // short vague prompts behave the same
+  const short = classify('make it better', c);
+  assert.equal(short.tier, 'standard');
+  assert.equal(short.plan, false);
+  // size and risk signals still raise effort, with or without confidence
+  const big = classify('rework the whole thing across every screen so it looks right when the data loads and I am not sure why it breaks', c);
+  assert.ok(big.confidence < 0.55);
+  assert.equal(big.effort, 'high');
+  assert.equal(big.plan, true);
+  assert.equal(big.tier, 'deep');
+  // questions and trivial edits stay cheap
+  assert.equal(classify('what does the installers folder do?', c).tier, 'fast');
+  assert.equal(classify('fix a typo in README', c).plan, false);
+});
+
+// ---------------------------------------------------------------------------
 // Optional backends against a local stub server
 // ---------------------------------------------------------------------------
 

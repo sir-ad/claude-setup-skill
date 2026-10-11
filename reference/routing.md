@@ -14,18 +14,18 @@ A script in `.claude/hooks/route.mjs`, run by a `UserPromptSubmit` hook. It read
 ## Order of decision
 
 1. Rules, always. They score four kinds of evidence per role:
-   - file paths in the prompt that match the role's scope globs: 3 points each, split 3/n when n roles share the glob;
+   - file paths in the prompt that match the role's scope globs: 3 points each. When several roles match, the one with the most specific glob (longest literal prefix) takes it. Roles with an equally specific glob split it 3/n, unless only some of them also have a keyword or term hit in the prompt, and then those share it;
    - keywords from `.claude/router.json`: 1 point each, 2 when the keyword is the role's own name;
    - a built-in term list per kind of role (ui, endpoint, migration, deploy, flaky and so on): 0.5 each;
    - a stack frame in pasted output: the first project frame counts, later ones count less.
 
-   A negated mention ("don't touch the ui") does not count. The script then computes `confidence = strength x margin factor`. Strength is `1 - exp(-(evidence + 0.4 if the prompt has a change verb) / 1.6)`. The margin factor is `0.4 + 0.6 x margin`, where margin is the lead of the best role over the runner-up.
+   A negated mention ("don't touch the ui") does not count. Negation comes from separate words (not, don't, never, without, avoid, skip, ignore, except, exclude, no); a negator glued to a name, as in `--no-install`, `without-git`, `no_cache` or `noInstall`, is part of that name and negates nothing. The script then computes `confidence = strength x margin factor`. Strength is `1 - exp(-(evidence + 0.4 if the prompt has a change verb + 0.3 if the winning role matched two distinct keywords or terms) / 1.6)`. The margin factor is `0.4 + 0.6 x margin`, where margin is the lead of the best role over the runner-up.
 2. A decision to delegate needs confidence of at least 0.55, an effort above low, and a prompt that is not a question or a short follow-up. The threshold came from a sweep over the test prompts: the lowest value with no wrong delegations. It is stored as `thresholds.confidence` in `.claude/router.json`.
 3. When the prompt touches more than one layer, the primary role is the lowest layer (data, then backend, then frontend). `delegate` is false and `plan` is true, so the main agent orchestrates. The `qa` flag is true on any change verb. QA is the primary role only when the request is mainly about tests.
 4. Local model, only if enabled and rule confidence is under the threshold. One short call with a timeout of at most 1500 ms. The rules keep a veto over roles the prompt negated, and the model can raise effort but never lower it. Any failure falls back to the rules silently.
 5. A cheap model call is not built into the script. When the goal is large and confidence is still low, the main agent can send a `haiku` explorer to look first. That costs a subagent context and a few seconds, so it is not worth it for routine edits.
 
-Questions and short follow-ups ("yes", "do it") get no delegation. Words such as auth, payment, migration or security raise effort to high, which sets `plan` to yes. A delegated risky task moves to the `deep` tier. Pasted logs, stack traces and long fenced blocks are separated from the prose and down-weighted, so their words do not swamp the keyword counts. The script reads at most about 24,000 characters (the first 14,000 and the last 8,000) and at most 40 file paths. A non-English prompt gets low confidence and goes to the main session.
+Questions and short follow-ups ("yes", "do it") get no delegation. Words such as auth, payment, migration or security raise effort to high, which sets `plan` to yes. Low confidence alone does not: a prompt the router cannot place goes to the main session at medium effort (standard tier, no plan), and only the size, risk and breadth signals (a large-scope verb, a risky area, a long list of requests, several layers) raise it to high. A delegated risky task moves to the `deep` tier. Pasted logs, stack traces and long fenced blocks are separated from the prose and down-weighted, so their words do not swamp the keyword counts. The script reads at most about 24,000 characters (the first 14,000 and the last 8,000) and at most 40 file paths. A non-English prompt gets low confidence and goes to the main session.
 
 To skip the router for one prompt, write "no routing" or "/noroute". `CLAUDE_SETUP_ROUTER=off` turns it off.
 
@@ -58,7 +58,7 @@ Known misses:
 - Non-English prompts, and quoted code that matches a keyword.
 - A repo whose scopes overlap, such as a full-stack framework where `app/` holds both UI and server code. The router then reports low confidence.
 
-Errors are not symmetric. Sending a hard task to a cheap tier costs retries. The rules lean to the higher tier on doubt, and low confidence means "main agent decides". The router names the rules that matched, so a wrong route is easy to see: `node .claude/hooks/route.mjs --explain "<prompt>"`.
+Errors are not symmetric. Sending a hard task to a cheap tier costs retries. The rules lean to the higher tier when risk or size signals are present, and low confidence on its own means "main agent decides" at the standard tier. The router names the rules that matched, so a wrong route is easy to see: `node .claude/hooks/route.mjs --explain "<prompt>"`.
 
 ## Privacy
 

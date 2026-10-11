@@ -45,14 +45,22 @@ function stem(w) {
 const undouble = (w) => w.replace(/([^aeiouls])\1$/, '$1');
 
 // Tokens carry a clause index (negation scope) and a sentence index (question scope).
+// A negator glued to a word is part of a name, not a negation: --no-install, without-x, no_cache, noInstall.
+const GLUED = '(?:no|not|never|without|avoid|skip|ignore|except|exclude)';
+const MARK = '\u2060';
 function tokenize(text) {
-  const spaced = text.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase().replace(/n['’]t\b/g, ' not');
+  const marked = text
+    .replace(new RegExp(`(?<![\\p{L}\\p{N}])(${GLUED})(?=[-_][\\p{L}\\p{N}])`, 'giu'), `$1${MARK}`)
+    .replace(new RegExp(`(?<![\\p{L}\\p{N}])(${GLUED})(?=\\p{Lu})`, 'gu'), `$1${MARK}`);
+  const spaced = marked.replace(new RegExp(`([a-z0-9${MARK}])([A-Z])`, 'g'), '$1 $2').replace(/_/g, ' ').toLowerCase().replace(/n['’]t\b/g, ' not');
   const out = [];
   let c = 0;
   let n = 0;
-  for (const m of spaced.match(/[\p{L}\p{N}]+|[,.;:!?\n()]/gu) || []) {
+  for (const raw of spaced.match(new RegExp(`[\\p{L}\\p{N}]+${MARK}?|[,.;:!?\\n()]`, 'gu')) || []) {
+    const cmp = raw.endsWith(MARK);
+    const m = cmp ? raw.slice(0, -1) : raw;
     if (m === 'but' || m === 'however' || /^[,;:()]$/.test(m)) c++;
-    else if (/^[.!?\n]$/.test(m)) { c++; n++; } else out.push({ s: stem(m), w: m, c, n });
+    else if (/^[.!?\n]$/.test(m)) { c++; n++; } else out.push({ s: stem(m), w: m, c, n, cmp });
   }
   return out;
 }
@@ -66,7 +74,7 @@ const NEG_AFTER = new Set(['alone', 'untouched', 'unchanged'].map(stem));
 function negated(tokens, i, len) {
   for (let j = i - 1; j >= Math.max(0, i - 5) && tokens[j].c === tokens[i].c; j--) {
     if (tokens[j].s === 'forget') return false; // "don't forget to update X"
-    if (NEGATORS.has(tokens[j].s)) return true;
+    if (NEGATORS.has(tokens[j].s) && !tokens[j].cmp) return true;
   }
   for (let j = i + len; j < Math.min(tokens.length, i + len + 3) && tokens[j].c === tokens[i].c; j++) {
     if (NEG_AFTER.has(tokens[j].s)) return true;
@@ -223,17 +231,6 @@ export function analyze(prompt, cfg = DEFAULT_CONFIG) {
   const reasons = [];
   const score = new Map(C.roles.map((r) => [r.name, { kind: r.kind, ro: r.ro, kw: 0, lex: 0, fail: 0, path: 0, frame: 0, paste: 0, first: Infinity, neg: false, kws: [], terms: [], paths: [], idx: [] }]));
   const noun = (i) => tokens[i].s === 'chang' && /^(the|these|those|my|your|this|any|recent|our|all|some)$/.test(tokens[i - 1]?.w); // "the changes I made"
-  // Mentioned file paths (strong signal), honouring negation ("don't touch src/ui/x.tsx").
-  paths.forEach((p, i) => {
-    const idx = tokens.findIndex((t) => t.w === `qpath${i}x`);
-    const isNeg = idx >= 0 && negated(tokens, idx, 1);
-    const owners = roleByPath(C, p);
-    for (const s of owners.map((r) => score.get(r.name))) {
-      if (isNeg) { s.neg = true; continue; } // a negated path is never an edit target
-      s.idx.push(idx);
-      if (!s.paths.includes(p)) { s.paths.push(p); s.path = Math.min(6, s.path + 3 / owners.length); } // shared globs split the credit
-    }
-  });
   // Stack frames in pasted text: the first project frame decides.
   const frames = (pasted.replace(URL_RE, ' ').match(PATH_RE) || []).map((m) => normPath(m.replace(/:\d+(?::\d+)?$/, ''))).filter((p) => !VENDORED.test(p) && !NOT_FILES.test(p));
   frames.slice(0, 6).forEach((p, i) => {
@@ -255,6 +252,22 @@ export function analyze(prompt, cfg = DEFAULT_CONFIG) {
     }
     s.kw = Math.min(4, s.kw);
     s.fail = Math.min(s.fail, s.kw + s.lex);
+  }
+  // Mentioned file paths (strong signal), honouring negation ("don't touch src/ui/x.tsx").
+  // Roles that share the best glob split the credit; if only some of them have keyword evidence, those share it.
+  paths.forEach((p, i) => {
+    const idx = tokens.findIndex((t) => t.w === `qpath${i}x`);
+    const isNeg = idx >= 0 && negated(tokens, idx, 1);
+    let owners = roleByPath(C, p);
+    const backed = owners.filter((r) => score.get(r.name).kw + score.get(r.name).lex > 0);
+    if (backed.length && backed.length < owners.length) owners = backed;
+    for (const s of owners.map((r) => score.get(r.name))) {
+      if (isNeg) { s.neg = true; continue; } // a negated path is never an edit target
+      s.idx.push(idx);
+      if (!s.paths.includes(p)) { s.paths.push(p); s.path = Math.min(6, s.path + 3 / owners.length); } // shared globs split the credit
+    }
+  });
+  for (const s of score.values()) {
     s.total = s.kw + s.lex + s.path + s.frame + s.paste;
     s.excluded = s.neg && s.kw < 2 && s.path === 0;
   }
@@ -289,8 +302,10 @@ export function analyze(prompt, cfg = DEFAULT_CONFIG) {
   const touched = ranked.filter((s) => s.kind !== 'qa' && top && s.total - s.frame - s.paste >= 1 && s.total >= 0.5 * top.total).map((s) => s.name);
   const lead = touched.length >= 2 ? [...touched].sort((a, b) => (LAYER[score.get(a).kind] ?? 3) - (LAYER[score.get(b).kind] ?? 3))[0] : top?.name;
   const margin = top && rival && rival.total > 0 ? (top.total - rival.total) / top.total : 1;
-  // Evidence strength (paths count most, a change verb adds a little) times margin over the runner-up.
-  const conf = top ? (1 - Math.exp(-(top.total + (change ? 0.4 : 0)) / 1.6)) * (0.4 + 0.6 * margin) : 0.25;
+  // Evidence strength (paths count most, a change verb adds a little, a second distinct keyword or term adds a little more)
+  // times margin over the runner-up.
+  const distinct = top ? new Set([...top.kws, ...top.terms].map((k) => k.toLowerCase())).size : 0;
+  const conf = top ? (1 - Math.exp(-(top.total + (change ? 0.4 : 0) + (distinct >= 2 ? 0.3 : 0)) / 1.6)) * (0.4 + 0.6 * margin) : 0.25;
   const effortN = 1 + (risky || big ? 2 : 0) + (touched.length >= 2 ? 2 : 0) + (tokens.length > 150 ? 2 : reqs >= 4 ? 2 : reqs >= 3 ? 1 : 0) - (q ? 1 : 0) - (trivial ? 1 : 0) + (pasted.trim() ? 1 : 0);
   const effort = effortN >= 3 ? 'high' : effortN <= 0 ? 'low' : 'medium';
   const followup = FOLLOW_UP.test(norm) || (tokens.length <= 3 && !top && !q && !paths.length && tokens.some((t) => /^(it|that|this|them|those|again|more)$/.test(t.w)));
@@ -314,8 +329,9 @@ export function analyze(prompt, cfg = DEFAULT_CONFIG) {
     if (big) reasons.push('large-scope verb (refactor/migrate/redesign/across): effort raised');
     if (trivial) reasons.push('trivial edit cue: effort lowered');
     if (!top) reasons.push('no role signals: main session decides');
-    // Escalate when unsure: never "low" for an unclear request; long unclear prompts go high.
-    if (A.conf < C.threshold && !q && !trivial) A.effort = tokens.length >= 20 ? 'high' : A.effort === 'low' ? 'medium' : A.effort;
+    // When unsure: never "low" for an unclear request. Doubt alone does not raise effort to high (and so does not force
+    // the deep tier or a plan); only the size, risk and breadth signals above do that.
+    if (A.conf < C.threshold && !q && !trivial && A.effort === 'low') A.effort = 'medium';
   }
   return A;
 }
