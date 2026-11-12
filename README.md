@@ -206,13 +206,18 @@ Scripts enforce these:
 - The detector lists each command with its source, such as `package.json#scripts.*` or a CI workflow. Nothing runs a command unless you say yes to one optional check.
 - The router unit, the graph fence in `docs/project-structure.md` and the roster fence in `docs/agents.md` come from `emit.mjs`, which writes script output only between fence markers.
 - `verify.mjs` checks line counts, JSON syntax, secret-like text, the `@AGENTS.md` import, unsafe settings and the fences (no placeholders, text equal to script output). It does not print a matched secret.
+- `audit.mjs` checks that `AGENTS.md` is true of the repo. Each command traces to the detector, a package script, a Makefile target, a CI step or repo text. Each hard-rule quote is found near its cited `file:line`, and a qualifier such as "unless" is never trimmed. Each version note is for a dependency the project declares, at that major version. It runs nothing.
 - The detector skips `.env` files, and the generated settings deny reads of them.
 
 The skill instructs the model to do these, and they are not enforced by code:
-- Quote each hard rule in full with its `file:line`, and never trim a qualifier such as "unless".
-- Write a version note only when your project declares that version. The notes live in `knowledge/` with their sources. The one-line notes in `AGENTS.md` do not carry links.
+- Decide whether a candidate rule constrains code changes. `audit.mjs` checks the quote, not the judgement.
+- Choose which version notes matter. They live in `knowledge/` with their sources. The one-line notes in `AGENTS.md` do not carry links. `audit.mjs` rejects a note for a dependency or major version the project does not declare.
 - Print the plan first, write exactly what it lists, and report any drift.
-- Open your scripts before writing a command, and grep the repo before banning a pattern in a rule.
+- Grep the repo before banning a pattern in a rule, and judge whether a command from your scripts is the right one to list. `audit.mjs` only checks that it exists.
+
+## Evals
+
+`npm run eval` scores reference outputs in [`evals/golden/`](./evals/golden) with `verify.mjs`, `audit.mjs` and per-case expectations, with no model call. `npm test` also changes those outputs on purpose (an invented command, a trimmed "unless", a wrong major version) and checks that each change is rejected. `npm run eval:live` runs the skill through the `claude` CLI on each fixture and scores what it wrote. That path spends model usage and has not been run end to end yet. See [`evals/README.md`](./evals/README.md).
 
 ## Flags
 

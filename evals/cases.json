@@ -1,0 +1,45 @@
+{
+  "cases": [
+    {
+      "id": "node-pnpm-monorepo",
+      "fixture": "test/fixtures/node-pnpm-monorepo",
+      "golden": true,
+      "requireCommands": ["pnpm test", "pnpm run build"],
+      "requireHardRules": ["Packages must not import from apps"],
+      "forbidVersionNotes": ["Tailwind"],
+      "note": "Tailwind 3 sits in devDependencies, so no Tailwind 4 note may appear."
+    },
+    {
+      "id": "python-uv",
+      "fixture": "test/fixtures/python-uv",
+      "golden": true,
+      "requireCommands": ["uv run pytest", "uv sync"],
+      "forbidVersionNotes": ["Django"]
+    },
+    {
+      "id": "go-mod",
+      "fixture": "test/fixtures/go-mod",
+      "golden": true,
+      "requireCommands": ["make test"]
+    },
+    {
+      "id": "node-single-npm",
+      "fixture": "test/fixtures/node-single-npm",
+      "golden": true,
+      "requireCommands": ["npm test", "npm run build"],
+      "forbidVersionNotes": ["React 19", "Next"]
+    },
+    {
+      "id": "rust-workspace",
+      "fixture": "test/fixtures/rust-workspace",
+      "golden": false,
+      "requireCommands": ["cargo test --workspace"]
+    },
+    {
+      "id": "roster-fastapi",
+      "fixture": "test/fixtures/roster-fastapi",
+      "golden": false,
+      "requireCommands": ["pytest"]
+    }
+  ]
+}

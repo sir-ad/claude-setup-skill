@@ -28,6 +28,10 @@ Tests live at the top of `test/` and end in `.test.mjs`. Put fixtures in subfold
 3. Version-gate facts. Say which tool or version a fact applies to, and when you checked it.
 4. Keep each note under 150 lines.
 
+## Add an eval case
+
+Evals score the `AGENTS.md` the skill writes. See [evals/README.md](./evals/README.md). To add a case: add an entry to `evals/cases.json`, and for a golden case a hand-written `evals/golden/<id>/AGENTS.md` that uses only commands, rules and versions the detector reports for the fixture. `npm run eval` scores the golden outputs and `npm test` also proves the scorer rejects bad ones.
+
 ## Writing style
 
 - Plain, direct sentences. Keep them short.
