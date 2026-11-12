@@ -7,6 +7,21 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/graph.mjs` parses Java, Kotlin, C#, PHP and Ruby. Imports resolve through indexes built from the repo's own declarations: package and class, namespace, PSR-4 class and file path (Ruby constants resolve only when the path is unique). Java and Kotlin are grouped below `src/main/<lang>` and past the shared package prefix. New entry kinds: `jvm-main`, `csharp-main`, `php-main`. Known limit: Java and Kotlin classes in one package need no import, so those links are not seen.
+
+### Changed
+
+- The router prints a line only when it has advice: delegate to a role, plan first, or run the QA agent after a matched role. Chat, questions and prompts that match no role get nothing. Silent decisions are still logged.
+- The router skips slash commands (`/plan-task`, `/orchestrate`, `/compact`), because the user already chose what runs.
+
+### Fixed
+
+- JVM, Ruby, .NET and PHP repos reported "No source files found" in the graph, so role scopes fell back to the catch-all `**` and the roster said `java (0 files)`. The roster now takes the reviewer's file count from the graph, which is not depth-limited like the detector walk.
+- `.claude/route-log.jsonl` grew without limit. It is now capped at 256 KB and drops the oldest half when it passes that.
+- The explorer page called its abridged router preview a byte-for-byte copy.
+
 ## [0.4.0] - 2026-10-11
 
 ### Added

@@ -1454,7 +1454,7 @@
       '4. Run `test-runner`. At most 3 fix rounds, then stop and report.',
       '5. Run the reviewer' + (s.roles.indexOf('security-reviewer') !== -1 ? ', and `security-reviewer` when its scope changed' : '') + '.', '');
     var first = s.roles[0] || 'frontend';
-    var tools = ['- Claude Code: reads `.claude/agents/*.md`.' + (s.router ? ' The `UserPromptSubmit` hook (`.claude/hooks/route.mjs`) adds a one-line routing hint to each prompt.' : '') + (s.orch ? ' `/orchestrate` runs the sequence.' : '')];
+    var tools = ['- Claude Code: reads `.claude/agents/*.md`.' + (s.router ? ' The `UserPromptSubmit` hook (`.claude/hooks/route.mjs`) adds a one-line routing hint when it has advice for the prompt.' : '') + (s.orch ? ' `/orchestrate` runs the sequence.' : '')];
     if (has(s, 'codex')) tools.push('- Codex: reads `.codex/agents/*.toml`, mirrored from `.claude/agents/`. Codex spawns a subagent only when `AGENTS.md` says it may, so the Delegation section in `AGENTS.md` is required.');
     if (has(s, 'gemini')) tools.push('- Gemini CLI: reads `.gemini/agents/*.md`. Write `@' + first + '` at the start of a prompt to force an agent.');
     if (has(s, 'opencode')) tools.push('- opencode: reads `.opencode/agents/*.md` (`mode: subagent`). Use `@' + first + '` or let the main agent pick by description.');
@@ -1551,7 +1551,7 @@
       add('.claude/agents/' + k + '.md', roleWhy(k, s, c), 'role-' + k, function () { return roleText(k, s, c); });
     });
     if (s.router) {
-      add('.claude/hooks/route.mjs', 'Copied byte for byte from the skill. Runs on each prompt with no network and adds one Route line.', 'route', function () { return ROUTE_JS; });
+      add('.claude/hooks/route.mjs', 'Copied byte for byte from the skill by the real run. The preview below is abridged. Runs on each prompt with no network and adds a Route line when it has advice.', 'route', function () { return ROUTE_JS; });
       add('.claude/router.json', 'Routes and tiers the hook reads. Roles come from the agents above. Confidence threshold 0.55.', 'router', function () { return JSON.stringify(routerConfig(s, c), null, 2); });
     }
     if (s.skillsOn) {

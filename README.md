@@ -128,13 +128,13 @@ Roles come from evidence in your repo, not from a template. `scripts/roster.mjs`
 
 Tiers set the model. `fast` is haiku (search, test runs, docs), `standard` is sonnet (work inside one scope), `deep` is opus (review, security). Other tools inherit the session model unless you pass `--model-map fast=X,standard=Y,deep=Z` with names you choose. See [`reference/model-tiers.md`](./reference/model-tiers.md).
 
-The router is a `UserPromptSubmit` hook. It scores each prompt against the roster with plain rules and adds one line:
+The router is a `UserPromptSubmit` hook. It scores each prompt against the roster with plain rules. It adds one line only when it has advice for the main agent: delegate to a role, plan first, or run `test-runner` afterwards:
 
 ```text
 Route: frontend agent (tier standard/sonnet), effort medium, plan no, then test-runner. Confidence 0.88. Override by saying 'no routing'.
 ```
 
-It runs a local Node script in about 70 ms with no network. It adds context only and cannot change the model or block a prompt. Write "no routing" in a prompt, or set `CLAUDE_SETUP_ROUTER=off`, to skip it. It logs a hash and the decision to a gitignored file, never the prompt text.
+It runs a local Node script in about 50 ms with no network. It adds context only and cannot change the model or block a prompt. It prints nothing for chat, questions and prompts that match no role, and it skips slash commands such as `/plan-task` and `/compact`. Write "no routing" in a prompt, or set `CLAUDE_SETUP_ROUTER=off`, to skip it. It logs a hash and the decision to a gitignored file, never the prompt text. The log is capped at 256 KB: past that, the oldest half is dropped.
 
 Rules are the default for a reason. Small learned routers exist. Laya is a 421M model with checkpoints of about 2.3 GB and a 7 to 10 second load. Strands Decider 2B is a 4.5 GB download and took 3 to 5 seconds per call on a laptop CPU. Both are version 0.1 projects. A hook that waits seconds slows every prompt. Both are optional backends (`CLAUDE_SETUP_ROUTER=ollama` or `decider`) and are used only when the rules are unsure. Details and sources are in [`reference/routing.md`](./reference/routing.md).
 

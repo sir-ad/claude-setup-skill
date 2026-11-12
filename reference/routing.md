@@ -4,11 +4,11 @@ How the router decides which role agent fits a prompt, what it can and cannot do
 
 ## What the router is
 
-A script in `.claude/hooks/route.mjs`, run by a `UserPromptSubmit` hook. It reads the prompt from stdin, scores it against `.claude/router.json` and prints one line of context, for example `Route: frontend agent (tier standard/sonnet), effort medium, plan no, then test-runner. Confidence 0.88. Override by saying 'no routing'.`
+A script in `.claude/hooks/route.mjs`, run by a `UserPromptSubmit` hook. It reads the prompt from stdin, scores it against `.claude/router.json` and prints one line of context when it has advice (delegate, plan, or run the QA agent after a matched role), for example `Route: frontend agent (tier standard/sonnet), effort medium, plan no, then test-runner. Confidence 0.88. Override by saying 'no routing'.`
 
 - It is advice. The main agent can ignore it, and the user can override it ("use opus", "no routing").
 - It adds context only. A `UserPromptSubmit` hook cannot rewrite the prompt and has no field for the model or effort. ([hooks](https://code.claude.com/docs/en/hooks#decision-control)) The model comes from the agent file the main agent then calls.
-- It never blocks. On any error it exits 0 and prints nothing.
+- It never blocks. On any error it exits 0 and prints nothing. It also prints nothing for chat, questions and prompts that match no role, and it skips slash commands, because the user already chose what runs. Silent decisions are still logged.
 - It makes no network call by default and needs nothing beyond Node.
 
 ## Order of decision
@@ -63,7 +63,7 @@ Errors are not symmetric. Sending a hard task to a cheap tier costs retries. The
 ## Privacy
 
 - The hook runs on the user's machine. With the default backend nothing leaves it.
-- The log `.claude/route-log.jsonl` is written only when `.claude/router.json` exists and has `"log": true`. A line holds a timestamp, a 12-character hash of the prompt, its length and the decision fields (role, agent, tier, model, effort, plan, delegate, qa, confidence, backend). It never holds prompt text or the reasons. The file is gitignored.
+- The log `.claude/route-log.jsonl` is written only when `.claude/router.json` exists and has `"log": true`. A line holds a timestamp, a 12-character hash of the prompt, its length and the decision fields (role, agent, tier, model, effort, plan, delegate, qa, confidence, backend). It never holds prompt text or the reasons. The file is gitignored and capped at 256 KB: past that, the oldest half is dropped.
 - A backend receives the first 1500 characters of the prompt. With Ollama or a local Decider server that stays on the machine. If you point `CLAUDE_SETUP_ROUTER_URL` or `CLAUDE_SETUP_DECIDER_URL` at a remote host, the prompt goes there.
 
 ## Enabling a backend

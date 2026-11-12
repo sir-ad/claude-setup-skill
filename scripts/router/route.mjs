@@ -3,7 +3,8 @@
 //   hook mode (stdin is not a TTY):  {"prompt": "..."} on stdin -> hookSpecificOutput JSON on stdout
 //   node route.mjs --explain "text"  human-readable decision with matched rules and scores
 //   node route.mjs --json "text"     decision JSON
-// Self-contained and dependency-free (Node >= 18): the skill copies this file to
+// The hook speaks only when it has advice (delegate to a role, plan first, or run the QA agent after); otherwise it prints
+// nothing, and it skips slash commands, which are an explicit choice. Self-contained and dependency-free (Node >= 18): the skill copies this file to
 // .claude/hooks/route.mjs and writes .claude/router.json next to it. The router is advice,
 // never authority: it always exits 0, prints nothing on bad input or when unconfigured (no router.json
 // found), and never logs prompt text.
@@ -19,6 +20,7 @@ const EFFORTS = ['low', 'medium', 'high'];
 const TIER_OF_EFFORT = { low: 'fast', medium: 'standard', high: 'deep' };
 const MAX_CONTEXT = 600;
 const OLLAMA_URL = 'http://127.0.0.1:11434/api/chat';
+const MAX_LOG_BYTES = 256 * 1024;
 
 export const DEFAULT_CONFIG = {
   version: 1,
@@ -422,6 +424,12 @@ export function describe(d, cfg = DEFAULT_CONFIG) {
   return `${s}${tail}`.slice(0, MAX_CONTEXT);
 }
 
+// True when the decision gives the main agent something to act on. A line that only says "handle it yourself"
+// costs context on every prompt and tells the agent nothing.
+export function hasAdvice(d, cfg = DEFAULT_CONFIG) {
+  return !!(d.delegate || d.plan || (d.qa && d.role !== compile(cfg).defaultRole));
+}
+
 function explain(d, cfg) {
   const A = d.detail;
   const lines = [
@@ -433,14 +441,21 @@ function explain(d, cfg) {
     const nums = [s.kw, s.lex, s.path, s.frame, s.paste].map((n) => n.toFixed(1)).join(' + ');
     lines.push(`  ${name.padEnd(10)} ${nums} = ${s.total.toFixed(2)}${s.excluded ? '  (excluded by negation)' : ''}${s.kws.length ? `  keywords: ${s.kws.join(', ')}` : ''}${s.terms.length ? `  terms: ${s.terms.join(', ')}` : ''}${s.paths.length ? `  paths: ${s.paths.join(', ')}` : ''}`);
   }
-  return [...lines, 'Reasons:', ...d.reasons.map((r) => `  - ${r}`), `Context: ${describe(d, cfg)}`].join('\n');
+  return [...lines, 'Reasons:', ...d.reasons.map((r) => `  - ${r}`), `Context: ${describe(d, cfg)}`, `Hook: ${hasAdvice(d, cfg) ? 'prints the context line' : 'prints nothing (no delegation, plan or QA advice)'}`].join('\n');
 }
 
 function logDecision(dir, prompt, d) {
   try {
     const { reasons, ...fields } = d; // never the prompt text, and no reasons (they can echo paths)
     const line = { ts: new Date().toISOString(), sha: crypto.createHash('sha256').update(prompt).digest('hex').slice(0, 12), len: prompt.length, ...fields };
-    fs.appendFileSync(path.join(dir, 'route-log.jsonl'), `${JSON.stringify(line)}\n`);
+    const file = path.join(dir, 'route-log.jsonl');
+    try {
+      if (fs.statSync(file).size > MAX_LOG_BYTES) { // keep the newest half so the file never grows without bound
+        const kept = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+        fs.writeFileSync(file, `${kept.slice(Math.floor(kept.length / 2)).join('\n')}\n`);
+      }
+    } catch { /* no log yet */ }
+    fs.appendFileSync(file, `${JSON.stringify(line)}\n`);
   } catch { /* logging must never break the hook */ }
 }
 
@@ -450,17 +465,18 @@ async function readStdin(ms = 5000) {
 }
 
 const OPT_OUT = /(^|\s)\/noroute\b|\bno routing\b/i;
+const SLASH_COMMAND = /^\s*\/[A-Za-z][\w:.-]*(?:\s|$)/; // /compact, /plan-task fix x: the user already chose what runs
 const UNCONFIGURED = 'unconfigured: no .claude/router.json found';
 
 async function hook() {
   try {
     const prompt = JSON.parse(await readStdin()).prompt;
-    if (typeof prompt !== 'string' || !prompt.trim() || OPT_OUT.test(prompt) || process.env.CLAUDE_SETUP_ROUTER === 'off') return;
+    if (typeof prompt !== 'string' || !prompt.trim() || OPT_OUT.test(prompt) || SLASH_COMMAND.test(prompt) || process.env.CLAUDE_SETUP_ROUTER === 'off') return;
     const { cfg, file } = loadConfig();
     if (!file) return; // unconfigured project: stay silent
     const d = await route(prompt, cfg);
-    process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: describe(d, cfg) } })}\n`);
-    if (file && cfg.log) logDecision(path.dirname(file), prompt, d);
+    if (hasAdvice(d, cfg)) process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: describe(d, cfg) } })}\n`);
+    if (file && cfg.log) logDecision(path.dirname(file), prompt, d); // silent decisions are logged too: they are the data for tuning
   } catch { /* bad input: print nothing */ }
 }
 

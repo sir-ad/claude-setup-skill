@@ -7,7 +7,7 @@ import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { classify, route, describe } from '../scripts/router/route.mjs';
+import { classify, route, describe, hasAdvice } from '../scripts/router/route.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, '..', 'scripts', 'router', 'route.mjs');
@@ -265,6 +265,50 @@ test('hook mode: "no routing" and /noroute opt out', () => {
     assert.equal(r.stdout, '', p);
   }
   assert.equal(hookPrompt('fix the api handler', { CLAUDE_PROJECT_DIR: dir, CLAUDE_SETUP_ROUTER: 'off' }).stdout, '');
+});
+
+test('hook mode is silent when the router has no advice, and still logs the decision', () => {
+  const dir = projectDir();
+  for (const p of ['write a haiku about the autumn leaves falling in the park', 'commit and push this', 'what does the api handler do?', 'thanks']) {
+    const r = hookPrompt(p, { CLAUDE_PROJECT_DIR: dir });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '', p);
+  }
+  const lines = fs.readFileSync(path.join(dir, '.claude', 'route-log.jsonl'), 'utf8').trim().split('\n');
+  assert.equal(lines.length, 4, 'silent decisions are logged for tuning');
+  // Advice still comes through.
+  assert.match(hookPrompt('Fix the api handler in services/orders/handler.ts', { CLAUDE_PROJECT_DIR: dir }).stdout, /additionalContext/);
+});
+
+test('hasAdvice: delegate, plan or QA after a matched role; nothing else', () => {
+  assert.equal(hasAdvice(classify('Fix the button hover color in web/src/components/Button.tsx', T3), T3), true);
+  assert.equal(hasAdvice(classify('thanks', T3), T3), false);
+  assert.equal(hasAdvice(classify('write a long poem about the sea and the stars and the moon', T3), T3), false, 'QA alone needs a matched role');
+  const e = spawnSync(process.execPath, [SCRIPT, '--explain', 'thanks'], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir() } });
+  assert.match(e.stdout, /Hook: prints nothing/);
+});
+
+test('hook mode skips slash commands; a path that starts with a slash is still routed', () => {
+  const dir = projectDir();
+  for (const p of ['/plan-task add a dark mode toggle to the settings page', '/compact', '/orchestrate fix the api handler', '  /model opus']) {
+    assert.equal(hookPrompt(p, { CLAUDE_PROJECT_DIR: dir }).stdout, '', p);
+  }
+  assert.equal(fs.existsSync(path.join(dir, '.claude', 'route-log.jsonl')), false, 'skipped prompts are not logged');
+  assert.match(hookPrompt('/src/api/handler.ts throws a 500, fix the handler', { CLAUDE_PROJECT_DIR: dir }).stdout, /additionalContext/);
+});
+
+test('the log is capped: past 256 KB the oldest half is dropped', () => {
+  const dir = projectDir();
+  const file = path.join(dir, '.claude', 'route-log.jsonl');
+  const filler = `${JSON.stringify({ ts: 'old', sha: 'x'.repeat(12), len: 1 })}\n`;
+  fs.writeFileSync(file, filler.repeat(Math.ceil((256 * 1024 + 10) / filler.length)));
+  const before = fs.statSync(file).size;
+  hookPrompt('Fix the api handler in services/orders/handler.ts', { CLAUDE_PROJECT_DIR: dir });
+  const after = fs.statSync(file).size;
+  assert.ok(after < before * 0.6, `rotated: ${before} -> ${after}`);
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
+  assert.equal(JSON.parse(lines.at(-1)).backend, 'rules', 'the new decision is the last line');
+  assert.ok(lines.every((l) => JSON.parse(l)), 'every line is still valid JSON');
 });
 
 test('log line has fields but never the prompt text', () => {
@@ -588,11 +632,11 @@ test('ollama backend: timeout and connection errors fall back to rules silently'
 });
 
 test('ollama backend via hook mode logs backend=ollama', () => {
-  // Spawned process cannot reach the in-process stub synchronously, so use an unreachable URL: the hook must still answer.
+  // Spawned process cannot reach the in-process stub synchronously, so use an unreachable URL: the hook must still exit 0 and log.
   const dir = projectDir();
   const r = hookPrompt(VAGUE, { CLAUDE_PROJECT_DIR: dir, CLAUDE_SETUP_ROUTER: 'ollama', CLAUDE_SETUP_ROUTER_URL: 'http://127.0.0.1:9/api/chat', CLAUDE_SETUP_ROUTER_TIMEOUT_MS: '200' });
   assert.equal(r.status, 0);
-  assert.ok(JSON.parse(r.stdout).hookSpecificOutput.additionalContext.length > 0);
+  assert.equal(r.stdout, '', 'the dead backend falls back to rules, which have no advice for a vague prompt');
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'route-log.jsonl'), 'utf8')).backend, 'rules');
 });
 

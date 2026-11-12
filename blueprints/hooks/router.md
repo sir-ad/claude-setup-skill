@@ -1,6 +1,6 @@
 # Blueprint: UserPromptSubmit router hook
 
-A local script that reads each prompt, matches it against the roster's routes and adds one line of advice to the context: which role agent fits, which tier, whether to plan. It never blocks a prompt and never changes the model. Claude Code only. Other tools get the `## Routing` table in `AGENTS.md` (see `agents-md-routing.md`).
+A local script that reads each prompt, matches it against the roster's routes and adds one line of advice to the context when it has some: which role agent fits, which tier, whether to plan. It stays silent otherwise and skips slash commands. It never blocks a prompt and never changes the model. Claude Code only. Other tools get the `## Routing` table in `AGENTS.md` (see `agents-md-routing.md`).
 
 The router is written by `emit.mjs --write router`, never by hand. The model writes nothing in this blueprint except the rest of `.claude/settings.json`.
 
@@ -66,4 +66,4 @@ Example of what the model sees on a prompt (the wording comes from the script):
 ```text
 Route: frontend agent (tier standard/sonnet), effort medium, plan no, then test-runner. Confidence 0.88. Override by saying 'no routing'.
 ```
-When confidence is under the threshold the hint says so: `Route: handle in main session ... Closest role: backend, not confident enough to delegate.`
+When there is nothing to act on (no delegation, no plan, no QA step after a matched role) the hook prints nothing, and it still logs the decision. When a plan or QA step is advised but confidence is under the threshold, the hint says so: `Route: handle in main session ... Closest role: backend, not confident enough to delegate.`
