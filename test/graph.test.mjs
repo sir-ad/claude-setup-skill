@@ -110,6 +110,77 @@ test('graph-rust: workspace crates, mod declarations and Cargo dependencies', ()
   assert.equal(g.central.files.find((f) => f.path === 'crates/app/src/cli.rs').inDegree, 1);
 });
 
+test('graph-jvm: Java and Kotlin imports resolve through package + class, grouped below the source root', () => {
+  const g = buildGraph(fixture('graph-jvm'));
+  assert.equal(g.files, 6);
+  assert.equal(g.testFiles, 1, 'src/test and StoreTest.java are flagged, not graphed');
+  assert.deepEqual(g.languages.map((l) => [l.name, l.files]), [['java', 5], ['kotlin', 1]]);
+  // The shared prefix com/acme is dropped from the grouping depth, so packages show as separate modules.
+  const base = 'src/main/java/com/acme';
+  assert.deepEqual(g.nodes.map((n) => n.id), [base, `${base}/store`, `${base}/store/model`, `${base}/util`, `${base}/web`, 'src/main/kotlin/com/acme/web']);
+  assert.deepEqual(edgeMap(g), {
+    [`${base} > ${base}/store`]: 1,
+    [`${base} > ${base}/web`]: 1,
+    [`${base}/web > ${base}/store`]: 1,
+    [`${base}/web > ${base}/store/model`]: 1, // wildcard import resolves to the package directory
+    [`${base}/web > ${base}/util`]: 1, // import static com.acme.util.Strings.slug resolves to Strings.java
+    [`src/main/kotlin/com/acme/web > ${base}/store`]: 1,
+  });
+  // java.* is dropped and an import inside a comment is ignored.
+  assert.deepEqual(g.externals.map((e) => [e.name, e.count]), [['org.springframework', 2], ['io.ktor', 1]]);
+  assert.equal(entry(g, `${base}/App.java`).kind, 'jvm-main');
+  assert.deepEqual(g.repoMap.find((r) => r.path.endsWith('Routes.kt')).symbols, ['routes']);
+  assert.deepEqual(g.warnings, []);
+});
+
+test('graph-cs: using directives resolve through namespaces, generated files are skipped', () => {
+  const g = buildGraph(fixture('graph-cs'));
+  assert.equal(g.files, 3, 'Schema.Designer.cs is generated');
+  assert.equal(g.testFiles, 1, 'the Acme.Tests project is flagged, not graphed');
+  assert.deepEqual(g.nodes.map((n) => n.id), ['src/Acme.App', 'src/Acme.Core', 'src/Acme.Data']);
+  assert.deepEqual(edgeMap(g), {
+    'src/Acme.App > src/Acme.Core': 1,
+    'src/Acme.App > src/Acme.Data': 1,
+    'src/Acme.Data > src/Acme.Core': 2, // `using Acme.Core;` and `using static Acme.Core.Order;`
+  });
+  assert.deepEqual(g.externals.map((e) => e.name), ['Microsoft.Extensions', 'Newtonsoft.Json'], 'System.* is dropped');
+  assert.equal(entry(g, 'src/Acme.App/Program.cs').kind, 'csharp-main');
+  assert.deepEqual(g.repoMap.find((r) => r.path === 'src/Acme.Core/Order.cs').symbols, ['Order', 'IOrderRule']);
+});
+
+test('graph-php: use statements, group use and __DIR__ requires', () => {
+  const g = buildGraph(fixture('graph-php'));
+  assert.equal(g.files, 5);
+  assert.deepEqual(g.nodes.map((n) => n.id), ['public', 'src', 'src/Http', 'src/Models']);
+  assert.deepEqual(edgeMap(g), {
+    'public > src': 1, // require __DIR__ . '/../src/bootstrap.php'
+    'src > src/Http': 1,
+    'src > src/Models': 2, // use App\\Models\\{User, Post}
+    'src/Http > src/Models': 1,
+  });
+  // A global class (`use Exception;`) and a trait use inside a class are not externals.
+  assert.deepEqual(g.externals.map((e) => e.name), ['Illuminate\\Support', 'Symfony\\Component']);
+  assert.equal(entry(g, 'public/index.php').kind, 'php-main');
+});
+
+test('graph-rb: require_relative, require and unique constant references', () => {
+  const g = buildGraph(fixture('graph-rb'));
+  assert.equal(g.files, 4);
+  assert.equal(g.testFiles, 1, 'spec/ is flagged, not graphed');
+  assert.deepEqual(g.nodes.map((n) => n.id), ['lib', 'lib/acme']);
+  // require_relative 'acme/engine' plus the constant `Engine`; stdlib (json) is dropped, a comment mention is ignored.
+  assert.deepEqual(edgeMap(g), { 'lib > lib/acme': 2 });
+  assert.deepEqual(g.externals.map((e) => e.name), ['thor']);
+  assert.deepEqual(g.entryPoints, []);
+  assert.deepEqual(g.repoMap.find((r) => r.path === 'lib/acme/engine.rb').symbols, ['Acme::Engine']);
+});
+
+test('a Maven layout is not one big module and reports its real file count', () => {
+  const g = buildGraph(fixture('graph-jvm'));
+  assert.ok(g.nodes.length > 1, 'src/main must not collapse every package into one node');
+  assert.match(renderMarkdown(g), /Source files: 6 \(plus 1 test files\)\. Languages: java, kotlin\./);
+});
+
 // ---------------------------------------------------------------------------
 // Behaviour on temp repos
 // ---------------------------------------------------------------------------

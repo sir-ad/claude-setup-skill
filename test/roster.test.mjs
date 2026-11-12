@@ -84,6 +84,14 @@ test('fastapi + sqlalchemy + alembic + pytest + Dockerfile', () => {
   assert.ok(!names(r).includes('release'), 'no changelog, no release role');
 });
 
+test('maven layout: scope comes from the graph and the reviewer count is not zero', () => {
+  // The detector walks three levels deep and counts no Java files under src/main/java/com/..., the graph does.
+  const r = deriveRoster(fixture('graph-jvm'));
+  assert.deepEqual(role(r, 'backend').scope, ['src/**'], 'not the catch-all **');
+  assert.match(role(r, 'jvm-reviewer').why[0], /java \(5 files\)/);
+  assert.ok(!r.warnings.some((w) => /share the scope/.test(w)));
+});
+
 test('go cli has no frontend, data, backend or infra roles', () => {
   const r = deriveRoster(fixture('roster-go-cli'));
   for (const n of ['frontend', 'data', 'backend', 'infra', 'mobile', 'docs', 'security-reviewer']) assert.ok(!names(r).includes(n), n);

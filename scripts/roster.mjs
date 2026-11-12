@@ -102,7 +102,7 @@ const DATA_FILE = /(^|\/)(schema\.prisma|alembic\.ini|sqlc\.ya?ml|knexfile\.\w+|
 const MANIFEST = /^(package\.json|pyproject\.toml|requirements[\w.-]*\.txt|Pipfile|go\.mod|Cargo\.toml|Gemfile|composer\.json|pom\.xml|build\.gradle(\.kts)?|pubspec\.yaml)$/;
 // Evidence under these dirs is scaffold output (a generator's template), not the product's own code.
 const SCAFFOLD_DIR = /(^|\/)(template|templates|scaffold|scaffolds|examples|example|starter|starters)(\/|$)/;
-const BIN_KINDS = new Set(['package-bin', 'python-script', 'python-main', 'go-main', 'rust-bin']);
+const BIN_KINDS = new Set(['package-bin', 'python-script', 'python-main', 'go-main', 'rust-bin', 'jvm-main', 'csharp-main', 'php-main']);
 const LIB_KINDS = new Set(['package-main', 'package-module', 'package-exports']);
 const MANIFEST_IN_SOURCE = /^(\S+?(?:package\.json|Cargo\.toml|pyproject\.toml|go\.mod|setup\.py))(?=\s|$)/;
 
@@ -592,7 +592,11 @@ export function deriveRoster(dirArg = process.cwd(), opts = {}) {
     const langs = ((det.languages || []).slice().sort((a, b) => (b.files || 0) - (a.files || 0)));
     const lang = REVIEWER[eco] || 'code';
     const lf = langs.find((l) => (eco === 'node' ? l.name === 'typescript' : true));
-    add(mk(`${lang}-reviewer`, 'reviewer', [`primary ecosystem ${eco || 'unknown'}${lf ? `, ${lf.name} (${plural(lf.files || 0, 'file')})` : ''}`, 'always present: read-only review before merge'], ['**'], [], TOOLS.ro), []);
+    // The detector walks three levels deep, so a Maven or Gradle layout (src/main/java/...) counts as zero files.
+    // The graph walk is not depth-limited: take its count for the same language when it is higher.
+    const gl = lf && ((graph && graph.languages) || []).find((l) => l.name === lf.name);
+    const lfFiles = Math.max(lf ? lf.files || 0 : 0, gl ? gl.files || 0 : 0);
+    add(mk(`${lang}-reviewer`, 'reviewer', [`primary ecosystem ${eco || 'unknown'}${lf ? `, ${lf.name} (${plural(lfFiles, 'file')})` : ''}`, 'always present: read-only review before merge'], ['**'], [], TOOLS.ro), []);
 
     const secDirs = dirHits('security', tree);
     const sec = activeDeps('security', secDirs);

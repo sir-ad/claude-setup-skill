@@ -3,7 +3,7 @@
 //
 //   node scripts/graph.mjs [dir] [--json | --markdown] [--max-nodes N] [--budget LINES]
 //
-// Regex-based import graph for JS/TS, Python, Go and Rust: module nodes, weighted
+// Regex-based import graph for JS/TS, Python, Go, Rust, Java/Kotlin, C#, PHP and Ruby: module nodes, weighted
 // edges, centrality (in-degree + PageRank), entry points and an Aider-style repo map.
 // Zero dependencies, read-only, bounded work. Never opens .env* files and never
 // follows symlinks. Always exits 0, except 2 for usage errors.
@@ -17,7 +17,7 @@ import { parseToml } from './detect.mjs';
 const SKIP_DIRS = new Set([
   'node_modules', '.git', 'target', 'dist', 'build', '.venv', 'venv', 'vendor', '__pycache__',
   '.next', '.turbo', '.mypy_cache', '.pytest_cache', '.ruff_cache', '.gradle', '.cache', '.nuxt',
-  '.svelte-kit', '.output', '.parcel-cache', 'coverage',
+  '.svelte-kit', '.output', '.parcel-cache', 'coverage', 'obj',
   // Generated or vendored output, and example code that only adds noise.
   'generated', '__generated__', 'site-packages', 'bower_components', 'out', 'docs_src',
 ]);
@@ -28,7 +28,7 @@ const MAX_EDGES = 2000;
 const MAX_SYMBOLS = 8;
 const TOP_CENTRAL = 10;
 const MAX_MERMAID_EDGES = 80;
-const ENTRY_KINDS = ['package-bin', 'package-main', 'package-module', 'package-exports', 'package-script', 'python-script', 'python-main', 'go-main', 'rust-bin', 'next-app', 'next-pages', 'remix-routes', 'sveltekit-routes'];
+const ENTRY_KINDS = ['package-bin', 'package-main', 'package-module', 'package-exports', 'package-script', 'python-script', 'python-main', 'go-main', 'rust-bin', 'jvm-main', 'csharp-main', 'php-main', 'next-app', 'next-pages', 'remix-routes', 'sveltekit-routes'];
 const CONFIG_FILE = /(^|\/)_?[\w.-]*\.config\.[cm]?[jt]s$/;
 const MANIFESTS = /^(package\.json|tsconfig\.json|tsconfig\.base\.json|jsconfig\.json|go\.mod|go\.work|Cargo\.toml|pyproject\.toml|setup\.py|setup\.cfg|pnpm-workspace\.yaml)$/;
 
@@ -36,13 +36,19 @@ const LANG_BY_EXT = {
   '.ts': 'typescript', '.tsx': 'typescript', '.mts': 'typescript', '.cts': 'typescript',
   '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
   '.vue': 'vue', '.svelte': 'svelte', '.py': 'python', '.go': 'go', '.rs': 'rust',
+  '.java': 'java', '.kt': 'kotlin', '.cs': 'csharp', '.php': 'php', '.rb': 'ruby',
 };
-const FAMILY = { typescript: 'js', javascript: 'js', vue: 'js', svelte: 'js', python: 'py', go: 'go', rust: 'rs' };
+const FAMILY = {
+  typescript: 'js', javascript: 'js', vue: 'js', svelte: 'js', python: 'py', go: 'go', rust: 'rs',
+  java: 'jvm', kotlin: 'jvm', csharp: 'cs', php: 'php', ruby: 'rb',
+};
+const EXTRA_FAMILIES = new Set(['jvm', 'cs', 'php', 'rb']);
 const JS_EXTS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts', '.vue', '.svelte'];
-const GENERATED_NAME = /(\.d\.[cm]?ts|\.min\.js|\.generated\.\w+|\.gen\.\w+|\.pb\.go|_generated\.go|_pb2(_grpc)?\.py)$/;
+const GENERATED_NAME = /(\.d\.[cm]?ts|\.min\.js|\.generated\.\w+|\.gen\.\w+|\.g\.cs|\.designer\.cs|\.pb\.go|_generated\.go|_pb2(_grpc)?\.py)$/i;
 const GENERATED_HEAD = /@generated|Code generated|DO NOT EDIT|auto-?generated/i;
-const TEST_DIR = /(^|\/)(tests?|__tests__|__mocks__|specs?|e2e|testdata|fixtures?|examples?|benches|benchmarks?)(\/|$)/;
-const TEST_FILE = /(\.(test|spec)\.\w+$|_test\.(go|py)$|(^|\/)test_[^/]*\.py$|(^|\/)conftest\.py$)/;
+const TEST_DIR = /(^|\/)(tests?|Tests?|__tests__|__mocks__|specs?|e2e|testdata|fixtures?|examples?|benches|benchmarks?)(\/|$)/;
+const TEST_FILE = /(\.(test|spec)\.\w+$|_test\.(go|py|rb)$|_spec\.rb$|(^|\/)test_[^/]*\.py$|(^|\/)conftest\.py$|(^|\/)[A-Z]\w*Tests?\.(java|kt|cs|php)$)/;
+const TEST_PROJECT = /(^|\/)[\w.-]+\.(Tests?|UnitTests|IntegrationTests)(\/|$)/; // C# test projects: Acme.Tests/
 
 const NODE_BUILTINS = new Set(('assert async_hooks buffer child_process cluster console constants crypto dgram ' +
   'diagnostics_channel dns domain events fs http http2 https inspector module net os path perf_hooks process ' +
@@ -78,7 +84,7 @@ const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
 const bump = (map, key, n = 1) => map.set(key, (map.get(key) || 0) + n);
 const extOf = (rel) => path.posix.extname(rel);
-const isTestPath = (rel) => TEST_DIR.test(rel) || TEST_FILE.test(rel) ||
+const isTestPath = (rel) => TEST_DIR.test(rel) || TEST_FILE.test(rel) || TEST_PROJECT.test(rel) ||
   (rel.endsWith('.go') && /(^|\/)_[^/]+(\/|$)/.test(rel));
 
 function globToRegex(glob) {
@@ -232,12 +238,18 @@ function findMembers(ctx) {
 }
 
 // Group = workspace member for real monorepos, else the directory up to depth 2 below the member/root.
-function makeGrouper(members) {
+function makeGrouper(members, hint = () => null) {
   const byDepth = [...members].sort((a, b) => b.length - a.length || sortStr(a, b));
   const flat = members.length >= 4;
   const cache = new Map();
   const ofDir = (dir) => {
     if (cache.has(dir)) return cache.get(dir);
+    const hinted = hint(dir);
+    if (hinted) {
+      const res = { id: hinted, kind: 'module' };
+      cache.set(dir, res);
+      return res;
+    }
     const base = byDepth.find((m) => dir === m || dir.startsWith(`${m}/`)) || '';
     const rel = base ? dir.slice(base.length + 1) : dir;
     const segs = flat && base ? [] : rel ? rel.split('/').slice(0, 2) : [];
@@ -703,6 +715,206 @@ const byScore = (score, indeg, key) => (a, b) =>
   score.get(b[key]) - score.get(a[key]) || indeg(b[key]) - indeg(a[key]) || sortStr(a[key], b[key]);
 
 // ---------------------------------------------------------------------------
+// Java / Kotlin, C#, PHP, Ruby
+// ---------------------------------------------------------------------------
+// Regex scans like the other languages. Imports resolve through a name index built from the repo's own
+// declarations (package + class, namespace, PSR-4 class, file path), so only project code gets edges.
+// Known limit: Java and Kotlin classes in the same package need no import, so those links are not seen.
+
+const stripComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, '');
+const JVM_STD = /^(java|javax|kotlin|kotlinx|jdk|sun|scala)\./;
+const JVM_MODS = '(?:(?:public|private|protected|internal|open|abstract|final|sealed|data|static|inner|annotation|value|fun|expect|actual)\\s+)*';
+const JVM_TYPE = new RegExp(`^${JVM_MODS}(?:class|interface|record|object|enum(?:\\s+class)?|@interface)\\s+(\\w+)`, 'gm');
+const JVM_FUN = /^(?:(?:public|internal|private|inline|suspend)\s+)*fun\s+(?:<[^>]*>\s*)?(?:[\w.]+\.)?(\w+)\s*\(/gm;
+const JVM_SRC_ROOT = /^((?:.*\/)?src\/(?:main|test|integrationTest|testFixtures)\/(?:java|kotlin|scala))(?:\/(.*))?$/;
+
+function scanJvm(text, rel) {
+  const code = stripComments(text);
+  const pkg = (code.match(/^[ \t]*package\s+([\w.]+)/m) || [])[1] || '';
+  const raw = [...code.matchAll(/^[ \t]*import\s+(?:static\s+)?([\w.]+?)(\.\*)?[ \t]*(?:;|\s+as\s+\w+|$)/gm)].map((m) => ({ name: m[1], star: !!m[2] }));
+  const symbols = [...code.matchAll(JVM_TYPE)].map((m) => m[1]);
+  const funs = [...code.matchAll(JVM_FUN)].map((m) => m[1]);
+  const base = baseName(rel).replace(/\.\w+$/, '');
+  const isMain = /\bstatic\s+void\s+main\s*\(/.test(code) || /^[ \t]*(?:suspend\s+)?fun\s+main\s*\(/m.test(code) || /@SpringBootApplication\b/.test(code);
+  return { pkg, raw, symbols: [...symbols, ...funs], decls: [...new Set([...symbols, ...funs, base])], isMain };
+}
+
+function scanCs(text) {
+  const code = stripComments(text);
+  const namespaces = [...code.matchAll(/^[ \t]*namespace\s+([\w.]+)/gm)].map((m) => m[1]);
+  const raw = [...code.matchAll(/^[ \t]*(?:global\s+)?using\s+(?:static\s+)?(?:\w+\s*=\s*)?([\w.]+)\s*;/gm)].map((m) => m[1]);
+  const symbols = [...code.matchAll(/^[ \t]*(?:(?:public|internal|protected|private|static|sealed|abstract|partial|readonly|unsafe|file)\s+)*(?:class|interface|struct|enum|record(?:\s+(?:class|struct))?)\s+(\w+)/gm)].map((m) => m[1]);
+  const isMain = /\bstatic\s+(?:async\s+)?(?:Task|void|int)(?:<int>)?\s+Main\s*\(/.test(code);
+  return { namespaces, raw, symbols, isMain };
+}
+
+function scanPhp(text) {
+  const code = stripComments(text).replace(/^[ \t]*#(?!\[).*$/gm, '');
+  const ns = (code.match(/^[ \t]*namespace\s+([\w\\]+)\s*[;{]/m) || [])[1] || '';
+  const raw = [];
+  for (const m of code.matchAll(/^use\s+(?:function\s+|const\s+)?([\w\\]+?)\\\{([^}]*)\}\s*;/gm)) {
+    for (const part of m[2].split(',')) {
+      const name = part.trim().split(/\s+as\s+/i)[0].trim();
+      if (name) raw.push({ kind: 'class', name: `${m[1]}\\${name}` });
+    }
+  }
+  for (const m of code.matchAll(/^use\s+(?:function\s+|const\s+)?([\w\\]+)(?:\s+as\s+\w+)?\s*;/gm)) raw.push({ kind: 'class', name: m[1] });
+  for (const m of code.matchAll(/\b(?:require|include)(?:_once)?\s*\(?\s*(__DIR__\s*\.\s*)?['"]([^'"$]+\.php)['"]/g)) {
+    // After __DIR__ the path is relative to the file ('/../x.php'); without it, a leading slash is an absolute path.
+    if (m[1] || !m[2].startsWith('/')) raw.push({ kind: 'file', name: m[2].replace(/^\//, '') });
+  }
+  const symbols = [...code.matchAll(/^(?:(?:abstract|final|readonly)\s+)*(?:class|interface|trait|enum)\s+(\w+)/gm)].map((m) => m[1]);
+  return { ns, raw, symbols };
+}
+
+const RB_STDLIB = new Set(('json set time date fileutils pathname yaml securerandom digest optparse erb logger open3 tempfile uri net bigdecimal csv ' +
+  'forwardable singleton ostruct benchmark pp stringio socket timeout zlib openssl base64 monitor English etc rbconfig strscan delegate observer ' +
+  'find io minitest rubygems bundler').split(' '));
+const rbSnake = (c) => c.replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').replace(/([a-z\d])([A-Z])/g, '$1_$2').toLowerCase();
+
+function scanRb(text) {
+  const code = text.replace(/^=begin[\s\S]*?^=end/gm, '').replace(/^[ \t]*#.*$/gm, '');
+  const raw = [];
+  for (const m of code.matchAll(/^[ \t]*require_relative\s*\(?\s*['"]([^'"]+)['"]/gm)) raw.push({ kind: 'relative', name: m[1] });
+  for (const m of code.matchAll(/^[ \t]*require\s*\(?\s*['"]([^'"]+)['"]/gm)) raw.push({ kind: 'require', name: m[1] });
+  const symbols = [...code.matchAll(/^[ \t]*(?:class|module)\s+([A-Z]\w*(?:::\w+)*)/gm)].map((m) => m[1]);
+  const own = new Set(symbols.flatMap((s) => s.split('::')));
+  const consts = new Set();
+  for (const m of code.matchAll(/\b[A-Z][A-Za-z0-9]*(?:::[A-Z][A-Za-z0-9]*)*\b/g)) {
+    if (consts.size >= 300) break;
+    if (!own.has(m[0].split('::').pop())) consts.add(m[0]);
+  }
+  for (const c of consts) raw.push({ kind: 'const', name: c });
+  return { raw, symbols };
+}
+
+// Name indexes for the four families. Generated files and unreadable files are left out.
+function prepareExtraIndexes(ctx) {
+  const x = { jvmFqn: new Map(), jvmPkgs: new Map(), csNs: new Map(), csRoots: new Set(), phpFqn: new Map(), phpRoots: new Set(), rbSuffix: new Map(), jvmRoots: new Map() };
+  ctx.scans = new Map();
+  ctx.extra = x;
+  for (const f of ctx.sources) {
+    const fam = FAMILY[LANG_BY_EXT[extOf(f)]];
+    if (!EXTRA_FAMILIES.has(fam)) continue;
+    const text = readText(ctx, f);
+    if (text === null || GENERATED_HEAD.test(text.slice(0, 300))) continue;
+    const dir = dirName(f);
+    if (fam === 'jvm') {
+      const scan = scanJvm(text, f);
+      ctx.scans.set(f, scan);
+      for (const d of scan.decls) { const k = scan.pkg ? `${scan.pkg}.${d}` : d; if (!x.jvmFqn.has(k)) x.jvmFqn.set(k, f); }
+      if (scan.pkg && !x.jvmPkgs.has(scan.pkg)) x.jvmPkgs.set(scan.pkg, dir);
+      const m = `${dir}`.match(JVM_SRC_ROOT);
+      if (m) {
+        if (!x.jvmRoots.has(m[1])) x.jvmRoots.set(m[1], []);
+        x.jvmRoots.get(m[1]).push((m[2] || '').split('/').filter(Boolean));
+      }
+    } else if (fam === 'cs') {
+      const scan = scanCs(text);
+      ctx.scans.set(f, scan);
+      for (const ns of scan.namespaces) {
+        if (!x.csNs.has(ns)) x.csNs.set(ns, new Set());
+        x.csNs.get(ns).add(dir);
+        x.csRoots.add(ns.split('.')[0]);
+      }
+    } else if (fam === 'php') {
+      const scan = scanPhp(text);
+      ctx.scans.set(f, scan);
+      for (const d of new Set([...scan.symbols, baseName(f).replace(/\.php$/, '')])) {
+        const k = scan.ns ? `${scan.ns}\\${d}` : d;
+        if (!x.phpFqn.has(k)) x.phpFqn.set(k, f);
+      }
+      if (scan.ns) x.phpRoots.add(scan.ns.split('\\')[0]);
+    } else {
+      ctx.scans.set(f, scanRb(text));
+      const segs = f.replace(/\.rb$/, '').split('/');
+      for (let i = 0; i < segs.length; i++) {
+        const k = segs.slice(i).join('/');
+        if (!x.rbSuffix.has(k)) x.rbSuffix.set(k, []);
+        x.rbSuffix.get(k).push(f);
+      }
+    }
+  }
+  // Java and Kotlin: group by package below the source root, past the prefix every file shares (com/acme).
+  const common = new Map();
+  for (const [root, lists] of x.jvmRoots) {
+    let prefix = lists[0].slice();
+    for (const segs of lists) {
+      let i = 0;
+      while (i < prefix.length && i < segs.length && prefix[i] === segs[i]) i++;
+      prefix = prefix.slice(0, i);
+    }
+    common.set(root, prefix);
+  }
+  ctx.groupHint = (dir) => {
+    const m = dir.match(JVM_SRC_ROOT);
+    if (!m || !common.has(m[1])) return null;
+    const prefix = common.get(m[1]);
+    const rest = (m[2] || '').split('/').filter(Boolean).slice(prefix.length);
+    return [m[1], ...prefix, ...rest.slice(0, 2)].join('/');
+  };
+}
+
+function resolveJvm(ctx, imp, emit) {
+  const { jvmFqn, jvmPkgs } = ctx.extra;
+  const parts = imp.name.split('.');
+  for (let n = parts.length; n >= 2; n--) {
+    const file = jvmFqn.get(parts.slice(0, n).join('.'));
+    if (file) return emit({ file });
+  }
+  if (imp.star && jvmPkgs.has(imp.name)) return emit({ dir: jvmPkgs.get(imp.name) });
+  if (JVM_STD.test(imp.name) || parts.length < 3) return;
+  emit({ ext: parts.slice(0, 2).join('.') });
+}
+
+function resolveCs(ctx, name, emit) {
+  const { csNs, csRoots } = ctx.extra;
+  const dirs = csNs.get(name) || csNs.get(name.split('.').slice(0, -1).join('.')); // `using static Ns.Type` points at the namespace
+  if (dirs) return [...dirs].sort(sortStr).slice(0, 3).forEach((dir) => emit({ dir }));
+  const root = name.split('.')[0];
+  if (root === 'System' || csRoots.has(root)) return;
+  emit({ ext: name.split('.').slice(0, 2).join('.') });
+}
+
+function resolvePhp(ctx, from, imp, emit) {
+  if (imp.kind === 'file') {
+    const file = joinNorm(dirName(from), imp.name);
+    return ctx.fileSet.has(file) ? emit({ file }) : undefined;
+  }
+  const name = imp.name.replace(/^\\/, '');
+  const hit = ctx.extra.phpFqn.get(name);
+  if (hit) return emit({ file: hit });
+  const parts = name.split('\\');
+  if (parts.length < 2 || ctx.extra.phpRoots.has(parts[0])) return;
+  emit({ ext: parts.slice(0, 2).join('\\') });
+}
+
+function resolveRb(ctx, from, imp, emit) {
+  const has = (f) => ctx.fileSet.has(f);
+  const { rbSuffix } = ctx.extra;
+  if (imp.kind === 'relative') {
+    const base = joinNorm(dirName(from), imp.name.replace(/\.rb$/, ''));
+    const file = [`${base}.rb`].find(has);
+    return file ? emit({ file }) : undefined;
+  }
+  if (imp.kind === 'require') {
+    const n = imp.name.replace(/\.rb$/, '');
+    const file = [`lib/${n}.rb`, `${n}.rb`, `app/${n}.rb`].find(has) || (rbSuffix.get(n)?.length === 1 ? rbSuffix.get(n)[0] : null);
+    if (file && file !== from) return emit({ file });
+    if (!file && !RB_STDLIB.has(n.split('/')[0])) emit({ ext: n.split('/')[0] });
+    return;
+  }
+  // A constant reference (Zeitwerk style): Admin::UsersController -> admin/users_controller.rb, only when the path is unique.
+  const segs = imp.name.split('::').map(rbSnake);
+  for (let k = segs.length; k >= 1; k--) {
+    const files = rbSuffix.get(segs.slice(0, k).join('/'));
+    if (!files) continue;
+    if (files.length === 1 && files[0] !== from) emit({ file: files[0] });
+    return;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Entry points
 // ---------------------------------------------------------------------------
 
@@ -759,6 +971,7 @@ function otherEntryPoints(ctx, add) {
     if (baseName(f) === '__main__.py') add(f, 'python-main', '__main__.py');
   }
   for (const f of ctx.goMains) add(f, 'go-main', 'package main');
+  for (const m of ctx.mains) add(m.file, m.kind, m.source);
   for (const c of ctx.crates) {
     for (const r of c.roots) if (r.kind === 'bin') add(r.file, 'rust-bin', `${joinRel(c.dir, 'Cargo.toml')} (${c.name})`);
   }
@@ -783,6 +996,7 @@ function createContext(root, warnings) {
     root, warnings, cache: new Map(), skippedLarge: 0, testFiles: tests.length,
     sources: code, fileSet: new Set(code), manifests, manifestSet: new Set(manifests),
     packages: new Map(), pyModules: new Map(), goModules: [], goDirs: new Map(), goMains: [], crates: [], crateLinks: new Set(),
+    mains: [], scans: new Map(), extra: null, groupHint: () => null,
   };
   for (const rel of manifests.filter((m) => baseName(m) === 'package.json').sort(sortStr)) {
     const name = readJson(ctx, rel)?.name;
@@ -795,6 +1009,7 @@ function createContext(root, warnings) {
     ctx.goDirs.get(dirName(f)).push(f);
   }
   ctx.crates = loadCrates(ctx);
+  prepareExtraIndexes(ctx);
   return ctx;
 }
 
@@ -816,6 +1031,21 @@ function scanFiles(ctx) {
       scan = scanGo(text);
       scan.raw.forEach((s) => resolveGo(ctx, s, emit));
       if (scan.isMain) ctx.goMains.push(f);
+    } else if (family === 'jvm') {
+      scan = ctx.scans.get(f) || scanJvm(text, f);
+      scan.raw.forEach((i) => resolveJvm(ctx, i, emit));
+      if (scan.isMain) ctx.mains.push({ file: f, kind: 'jvm-main', source: 'main method or @SpringBootApplication' });
+    } else if (family === 'cs') {
+      scan = ctx.scans.get(f) || scanCs(text);
+      scan.raw.forEach((n) => resolveCs(ctx, n, emit));
+      if (scan.isMain || baseName(f) === 'Program.cs') ctx.mains.push({ file: f, kind: 'csharp-main', source: scan.isMain ? 'static Main' : 'Program.cs' });
+    } else if (family === 'php') {
+      scan = ctx.scans.get(f) || scanPhp(text);
+      scan.raw.forEach((i) => resolvePhp(ctx, f, i, emit));
+      if (/^(?:public\/)?index\.php$/.test(f)) ctx.mains.push({ file: f, kind: 'php-main', source: f });
+    } else if (family === 'rb') {
+      scan = ctx.scans.get(f) || scanRb(text);
+      scan.raw.forEach((i) => resolveRb(ctx, f, i, emit));
     } else { scan = scanRs(text); resolveRs(ctx, f, scan.raw, emit); }
     symbols.set(f, [...new Set(scan.symbols)].slice(0, MAX_SYMBOLS));
   }
@@ -825,7 +1055,7 @@ function scanFiles(ctx) {
 function analyze(root, opts, warnings) {
   const ctx = createContext(root, warnings);
   const members = findMembers(ctx);
-  const group = makeGrouper(members);
+  const group = makeGrouper(members, ctx.groupHint);
   const { deps, symbols } = scanFiles(ctx);
   const files = ctx.sources.filter((f) => ctx.fileSet.has(f));
   if (ctx.skippedLarge) warnings.push(`skipped ${ctx.skippedLarge} file(s) over ${MAX_BYTES / 1024 / 1024} MB`);
