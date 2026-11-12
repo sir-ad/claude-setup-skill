@@ -138,7 +138,7 @@ Then the full `.claude/settings.json` (the merged result if the file exists, inc
 
 Answer each yes/no line in the same reply as Proceed. The default is in brackets:
 ```
-  Router hook [yes]: UserPromptSubmit runs a local script on each prompt, no network, adds a one-line routing hint.
+  Router hook [yes]: UserPromptSubmit runs a local script on each prompt, no network, adds a one-line routing hint only when it has advice.
   Formatter hook [no]: PostToolUse runs <formatter> on each edited file. Adds .claude/hooks/format.sh.
   Handoff hook [no]: SessionStart prints .claude/handoff.md.
   Code-search MCP [no]: .mcp.json entry, local server. Asked only for a large codebase or when the user asked.
@@ -157,7 +157,7 @@ Rules for the plan:
 - `--intent` and `--model-map` change inputs, not the file list.
 - Drop the `.claude/handoff.md` ignore entry when the handoff skill is not written, and `.claude/route-log.jsonl` when the router is not written.
 - Formatter and handoff hooks: ask only if the detector found a formatter with a single-file command, or the handoff skill is planned. Show the hook JSON and the script from the Claude Code reference or `blueprints/hooks/session-start-handoff.md`, nothing else.
-- Router: default yes. It adds one line of context. It cannot change the model or block a prompt. Its hook JSON from `blueprints/hooks/router.md` is part of the settings block. Say that "no routing" in a prompt, `/noroute` or `CLAUDE_SETUP_ROUTER=off` skips it. If the user says no, drop the hook, both router files and the log entry, and show the updated plan.
+- Router: default yes. It adds one line of context when it has advice (delegate, plan, run the QA agent) and nothing otherwise. It skips slash commands. It cannot change the model or block a prompt. Its hook JSON from `blueprints/hooks/router.md` is part of the settings block. Say that "no routing" in a prompt, `/noroute` or `CLAUDE_SETUP_ROUTER=off` skips it. If the user says no, drop the hook, both router files and the log entry, and show the updated plan.
 - Code-search MCP: ask only for a large codebase (the Repo graph `Source files:` line shows more than about 1,000, or `workspaces` lists 10 or more members), or when the user asked. Follow `reference/code-search.md`. Embeddings are never the default.
 - The plan is a contract. Phase 4 writes exactly what it lists, with settings JSON verbatim. Replacing an existing file is a REPLACE line in the plan with its diff shown, covered by the same Proceed. If anything changes after Proceed, show the change and ask again.
 
@@ -258,7 +258,7 @@ Start from `"$schema": "https://json.schemastore.org/claude-code-settings.json"`
 4. If rule mirrors were written, run `node "${CLAUDE_SKILL_DIR}/scripts/sync-rules.mjs" --targets <same list> --check`. If agent mirrors were written, run `node "${CLAUDE_SKILL_DIR}/scripts/sync-agents.mjs" --targets <same list> --check` (add the same `--model-map`). Both must report no pending changes. (`--check` without `--targets` is a usage error.)
 5. If the user said yes to the check, run the fastest detected check once. Never run commands with side effects (deploy, publish, migrate, dev servers). If a command fails, fix it or drop it from AGENTS.md and say so.
 6. Print the tree, line counts, hazards and one check per tool written:
-   - Claude Code: `/memory` shows AGENTS.md imported through CLAUDE.md. `/agents` lists explorer, test-runner and the role agents. `/plan-task`, `/orchestrate` and `/handoff` appear in the `/` menu. A prompt gets a `Route:` line, and `node .claude/hooks/route.mjs --explain "<prompt>"` shows why.
+   - Claude Code: `/memory` shows AGENTS.md imported through CLAUDE.md. `/agents` lists explorer, test-runner and the role agents. `/plan-task`, `/orchestrate` and `/handoff` appear in the `/` menu. A prompt that names a role's territory gets a `Route:` line (chat and questions get none), and `node .claude/hooks/route.mjs --explain "<prompt>"` shows the decision and whether the hook prints.
    - Gemini CLI: `/memory show` includes the AGENTS.md text. Also `@<role>` at the start of a prompt runs a role agent.
    - Codex: ask it to summarize the instructions it loaded and to list the agents in `.codex/agents/`.
    - opencode: `@<role>` runs a role agent.
