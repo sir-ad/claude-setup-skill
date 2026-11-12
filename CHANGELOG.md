@@ -11,6 +11,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 - `scripts/graph.mjs` parses Java, Kotlin, C#, PHP and Ruby. Imports resolve through indexes built from the repo's own declarations: package and class, namespace, PSR-4 class and file path (Ruby constants resolve only when the path is unique). Java and Kotlin are grouped below `src/main/<lang>` and past the shared package prefix. New entry kinds: `jvm-main`, `csharp-main`, `php-main`. Known limit: Java and Kotlin classes in one package need no import, so those links are not seen.
 
+- `scripts/audit.mjs` checks that `AGENTS.md` is true of the repo: every command traces to the detector, a package script, a Makefile target, a CI step, repo text or a single-test form of a detected runner; every hard-rule quote is found near its cited `file:line` with no "unless" or "except" trimmed, also across an ellipsis; every version note is for a dependency the project declares at that major version. It runs nothing and never opens `.env` files. Phase 5 of the skill runs it and fixes every error.
+- `scripts/eval.mjs` and `evals/`: a case list, hand-written reference outputs for four fixtures, and a scorer that combines `verify.mjs`, `audit.mjs`, per-case expectations and a surface check. `npm run eval` needs no model. `npm run eval:live` drives the `claude` CLI and has not been run end to end.
+- Tests that change the reference outputs on purpose and check that the scorer rejects each change.
+
 ### Changed
 
 - The router prints a line only when it has advice: delegate to a role, plan first, or run the QA agent after a matched role. Chat, questions and prompts that match no role get nothing. Silent decisions are still logged.

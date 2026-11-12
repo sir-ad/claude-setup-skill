@@ -8,6 +8,8 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "validate": "node scripts/validate.mjs",
+    "eval": "node scripts/eval.mjs --golden",
+    "eval:live": "node scripts/eval.mjs --run",
     "check": "npm run validate && npm test"
   },
   "files": [
